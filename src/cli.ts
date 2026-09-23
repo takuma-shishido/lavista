@@ -7,6 +7,7 @@ import { consoleReporter } from "./events.js";
 import type { Reporter } from "./events.js";
 import { runLoop } from "./loop.js";
 import type { RunState } from "./model.js";
+import { chooseModels, interactivePicker } from "./models.js";
 import { InterruptedError, runProcess } from "./process.js";
 import type { RunStore } from "./store.js";
 import { tuiReporter } from "./tui/index.js";
@@ -22,12 +23,14 @@ function expectStage(state: RunState, stage: RunState["stage"], command: string)
   if (state.stage !== stage) throw new Error(`lavista ${command} requires the ${stage} stage, but the run is in ${state.stage}`);
 }
 
+const isInteractive = () => Boolean(process.stdout.isTTY && process.stdin.isTTY);
+
 function createProgram(signal: AbortSignal, workspace: Workspace) {
   // The TUI reads keys in raw mode, where Ctrl+C is a key press rather than SIGINT.
   const stop = new AbortController();
   const cancel = AbortSignal.any([signal, stop.signal]);
-  const reporter = (store: RunStore): Reporter => process.stdout.isTTY && process.stdin.isTTY
-    ? tuiReporter(store.id, store.directory, () => stop.abort(new InterruptedError()))
+  const reporter = (store: RunStore): Reporter => isInteractive()
+    ? tuiReporter(store, () => stop.abort(new InterruptedError()))
     : consoleReporter();
 
   const run = async (store: RunStore) => {
@@ -39,11 +42,11 @@ function createProgram(signal: AbortSignal, workspace: Workspace) {
     }
   };
 
-  /** Reload settings from config, apply a stage transition, then continue the loop. */
+  /** Reload limits from config (models stay as chosen at start), apply a stage transition, then continue. */
   const resumeWith = (transition: (state: RunState, store: RunStore) => RunState) => async (id?: string) => {
     const store = workspace.findRun(id);
     await store.exclusive(async () => {
-      const state: RunState = { ...store.load(), ...workspace.loadSettings() };
+      const state: RunState = { ...store.load(), ...workspace.loadLimits() };
       store.save(transition(state, store));
       await run(store);
     });
@@ -60,11 +63,19 @@ function createProgram(signal: AbortSignal, workspace: Workspace) {
   program.command("start")
     .description("Start a new run from a UTF-8 file with the goal and completion criteria")
     .argument("<prompt-file>")
-    .action(async (promptFile) => {
+    .option("--claude-model <model>", "Claude model for the worker (alias such as opus, or a full name)")
+    .option("--astra-model <model>", "Codex model for Astra's reviews")
+    .addHelpText("after", "\nModels not given here or in .lavista/config*.json are picked from a list (CLI defaults when not on a terminal).")
+    .action(async (promptFile, options) => {
       const goal = nonemptyFile(promptFile);
+      const config = workspace.loadConfig();
+      const models = await chooseModels({
+        claude_model: options.claudeModel ?? config.claude_model,
+        astra_model: options.astraModel ?? config.astra_model,
+      }, isInteractive() ? interactivePicker : undefined);
       const store = workspace.newRun();
       store.create({
-        ...workspace.loadSettings(),
+        ...models, ...workspace.loadLimits(),
         goal, project: workspace.project, stage: "claude", iteration: 1, next_prompt: goal,
       });
       await store.exclusive(() => run(store));
@@ -124,7 +135,9 @@ if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.me
   process.on("SIGTERM", interrupt);
   try {
     await main(process.argv.slice(2), controller.signal);
-  } catch (error) {
+  } catch (caught) {
+    // Ctrl+C in a model picker ends the prompt with ExitPromptError.
+    const error = caught instanceof Error && caught.name === "ExitPromptError" ? new InterruptedError() : caught;
     if (error instanceof CommanderError) {
       // Commander already printed help or the usage error.
       process.exitCode = error.exitCode;

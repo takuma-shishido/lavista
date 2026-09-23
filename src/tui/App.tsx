@@ -50,13 +50,14 @@ function Header({ view }: { view: View }) {
 
 interface PaneProps {
   agent: AgentName;
+  model: string;
   lines: Activity[];
   active: boolean;
   width: number;
   height: number;
 }
 
-function Pane({ agent, lines, active, width, height }: PaneProps) {
+function Pane({ agent, model, lines, active, width, height }: PaneProps) {
   const { title, color } = AGENTS[agent];
   // Rows inside the border, minus the title row.
   const capacity = Math.max(height - 3, 0);
@@ -64,7 +65,7 @@ function Pane({ agent, lines, active, width, height }: PaneProps) {
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={active ? color : "gray"}
       width={width} height={height} paddingX={1} overflow="hidden">
-      <Text bold color={color}>{title}</Text>
+      <Text wrap="truncate-end"><Text bold color={color}>{title}</Text><Text dimColor>  {model || "CLI default model"}</Text></Text>
       {lines.slice(first).map((activity, index) => (
         <Text key={first + index} wrap="truncate-end" {...colorOf(activity)}
           dimColor={activity.kind === "thinking"} italic={activity.kind === "thinking"}>
@@ -112,7 +113,7 @@ export function App({ feed, onStop }: { feed: Feed; onStop: () => void }) {
       <Header view={view} />
       <Box flexDirection={wide ? "row" : "column"}>
         {(["claude", "astra"] as const).map((agent) => (
-          <Pane key={agent} agent={agent} lines={view.lines[agent]} active={view.active?.agent === agent}
+          <Pane key={agent} agent={agent} model={view.models[agent]} lines={view.lines[agent]} active={view.active?.agent === agent}
             width={paneWidth} height={paneHeight} />
         ))}
       </Box>

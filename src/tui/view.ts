@@ -8,6 +8,8 @@ const MAX_LINES = 500;
 export interface View {
   runId: string;
   runDirectory: string;
+  /** Model per agent; empty when the CLI's default is used. */
+  models: Record<AgentName, string>;
   iteration: number;
   maxIterations: number;
   active?: { agent: AgentName; since: number };
@@ -17,9 +19,9 @@ export interface View {
   status: "running" | "stopping" | "stopped";
 }
 
-export function initialView(runId: string, runDirectory: string): View {
+export function initialView(runId: string, runDirectory: string, models: Record<AgentName, string>): View {
   return {
-    runId, runDirectory, iteration: 0, maxIterations: 0,
+    runId, runDirectory, models, iteration: 0, maxIterations: 0,
     lines: { claude: [], astra: [] }, decisions: [], status: "running",
   };
 }

@@ -7,16 +7,25 @@ export const count = z.int().positive();
 export const timeoutSeconds = count.max(MAX_TIMEOUT_SECONDS);
 
 // Keep persisted field names compatible with the original Python runs.
-/** User-tunable settings; also the shape of `.lavista/config*.json`. */
-export const runSettings = z.object({
-  astra_model: z.string(),
+/** Chosen once at start and fixed for the run. An empty string means the CLI's own default. */
+export const modelSettings = z.object({
   claude_model: z.string(),
+  astra_model: z.string(),
+});
+
+/** Re-read from config on every start and resume. */
+export const limitSettings = z.object({
   allowed_tools: z.string(),
   max_iterations: count,
   timeout: timeoutSeconds,
   max_history_bytes: count,
 });
 
+/** User-tunable settings; also the shape of `.lavista/config*.json`. */
+export const runSettings = modelSettings.extend(limitSettings.shape);
+
+export type ModelSettings = z.infer<typeof modelSettings>;
+export type LimitSettings = z.infer<typeof limitSettings>;
 export type RunSettings = z.infer<typeof runSettings>;
 
 const runConfig = runSettings.extend({

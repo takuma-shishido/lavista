@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { z } from "zod";
-import { parse, runSettings } from "./model.js";
-import type { RunSettings } from "./model.js";
+import { limitSettings, parse, runSettings } from "./model.js";
+import type { LimitSettings, RunSettings } from "./model.js";
 import { readJson, RunStore } from "./store.js";
 
 export const DEFAULT_SETTINGS: RunSettings = {
@@ -16,6 +16,8 @@ export const DEFAULT_SETTINGS: RunSettings = {
 
 // Every key is optional; unknown keys are rejected so typos do not silently fall back to defaults.
 const configFile = z.strictObject(runSettings.shape).partial();
+
+export type Config = z.infer<typeof configFile>;
 
 /**
  * The project's `.lavista/` directory:
@@ -39,12 +41,17 @@ export class Workspace {
     return join(this.directory, "runs");
   }
 
-  /** Defaults, overridden by `config.json`, overridden by `config.local.json`. */
-  loadSettings(): RunSettings {
+  /** Only what the config files set: `config.local.json` overrides `config.json`. */
+  loadConfig(): Config {
     const layers = this.configFiles
       .filter((path) => existsSync(path))
       .map((path) => parse(configFile, readJson(path), path));
-    return runSettings.parse(Object.assign({ ...DEFAULT_SETTINGS }, ...layers));
+    return Object.assign({}, ...layers);
+  }
+
+  /** Limits and permissions from config over defaults; models are chosen per run instead. */
+  loadLimits(): LimitSettings {
+    return limitSettings.parse({ ...DEFAULT_SETTINGS, ...this.loadConfig() });
   }
 
   /** Allocate a new run directory named by its start time. */

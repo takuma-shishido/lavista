@@ -46,6 +46,22 @@ lavista  run 2026-09-24T01-23-45Z  iteration 1/5  Astra (Codex) ⠇ 00:12
 - 終了すると元の画面に戻り、判定の要約とログの場所を表示します。
 - パイプやCIなど端末でない出力先では、同じ内容を1行ずつのテキストで出力します。
 
+## モデルの選択
+
+ClaudeとAstra（Codex）のモデルは `start` 時にrunごとに決まり、そのrunの間は固定されます。
+
+```sh
+lavista start task.txt --claude-model opus --astra-model gpt-6-astra
+```
+
+指定の優先順位は、コマンドの `--claude-model` / `--astra-model`、設定ファイルの `claude_model` / `astra_model`、の順です。どちらでも指定されていないモデルは、起動時に一覧から選びます。
+
+- Claude：`fable` / `opus` / `sonnet` / `haiku`（各系列の最新モデルを指すClaude CLIの別名）
+- Astra：Codexが提供するモデル一覧（`codex debug models` と、Codexがアカウントごとに取得・保存しているモデル一覧）
+- どちらにも「CLI default」（各CLIの設定に従う）と「Other…」（モデル名を入力）があります
+
+端末でない環境（パイプ・CI）では一覧を出さず、Claudeは「CLI default」、Astraは `gpt-6-astra` を使います。選んだモデルはTUIの各ペインの見出しと `lavista status` で確認できます。
+
 ## 設定
 
 設定はコマンド引数ではなく `.lavista/` 以下のJSONファイルに書きます。どちらも省略可能で、書いた項目だけが既定値を上書きします。
@@ -66,14 +82,14 @@ lavista  run 2026-09-24T01-23-45Z  iteration 1/5  Astra (Codex) ⠇ 00:12
 
 | 項目 | 既定値 | 内容 |
 |---|---|---|
-| `astra_model` | `gpt-6-astra` | Astra（Codex）のモデル |
-| `claude_model` | `""` | Claudeのモデル。空ならClaude CLIの設定に従う |
+| `claude_model` | （一覧から選択） | Claudeのモデル。`""` ならClaude CLIの設定に従う |
+| `astra_model` | （一覧から選択） | Astra（Codex）のモデル。`""` ならCodex CLIの設定に従う |
 | `allowed_tools` | `""` | Claudeに追加で許可するツール規則 |
 | `max_iterations` | `5` | 最大反復回数 |
 | `timeout` | `1800` | 1回のCLI呼び出しのタイムアウト（秒） |
 | `max_history_bytes` | `1000000` | Astraに渡す履歴の上限（バイト） |
 
-未知のキーや不正な値はエラーになります。設定は `start` 時だけでなく `resume` などの再開時にも読み直されるため、上限に達して止まった場合はファイルを編集して `lavista resume` するだけで続行できます。初回の `start` で `.lavista/.gitignore` が作成され、`runs/` と `config.local.json` はgit管理外になります。
+未知のキーや不正な値はエラーになります。モデル以外の設定は `start` 時だけでなく `resume` などの再開時にも読み直されるため、上限に達して止まった場合はファイルを編集して `lavista resume` するだけで続行できます。初回の `start` で `.lavista/.gitignore` が作成され、`runs/` と `config.local.json` はgit管理外になります。
 
 ## 権限
 
@@ -141,6 +157,7 @@ runディレクトリの `001/`、`002/`…にClaudeの入力・全出力、Astr
 - `src/process.ts` — 子プロセス起動、ログ保存、タイムアウト・中断
 - `src/store.ts` — 状態・反復ごとのファイル配置の保存と多重起動防止
 - `src/model.ts` — 状態・判定のスキーマ（型・検証・Astra向けJSON Schemaを一元定義）
+- `src/models.ts` — モデル一覧の取得と、起動時のモデル選択
 - `src/workspace.ts` — `.lavista/` の設定ファイル読み込みとrunディレクトリの作成・検索
 - `src/cli.ts` — サブコマンドと開始・再開操作
 
@@ -152,6 +169,7 @@ Python版と保存データの形式は共通です。ただし多重起動防�
 - [zod](https://zod.dev) — 保存状態とAstra応答の検証、構造化出力用JSON Schemaの生成
 - [commander](https://github.com/tj/commander.js) — サブコマンドの解析とヘルプ
 - [Ink](https://github.com/vadimdemedes/ink) / React — TUI表示
+- [@inquirer/prompts](https://github.com/SBoudrias/Inquirer.js) — 起動時のモデル選択
 - [write-file-atomic](https://github.com/npm/write-file-atomic) — 状態ファイルのアトミックな書き込み
 
 ## 開発用テスト

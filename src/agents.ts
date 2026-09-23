@@ -44,7 +44,8 @@ function claudeArgs(state: RunningState): string[] {
 
 function astraArgs(state: RunState, schemaPath: string, outputPath: string): string[] {
   return [
-    "exec", "--model", state.astra_model,
+    "exec",
+    ...(state.astra_model ? ["--model", state.astra_model] : []),
     "--sandbox", "read-only", "--skip-git-repo-check", "--json",
     "--output-schema", schemaPath, "--output-last-message", outputPath,
     "-",

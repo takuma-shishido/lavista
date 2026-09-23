@@ -1,11 +1,13 @@
 import { render } from "ink";
 import type { Reporter } from "../events.js";
+import type { RunStore } from "../store.js";
 import { App } from "./App.js";
 import { Feed, initialView } from "./view.js";
 
 /** Full-screen view of both agents. The alternate screen is restored on exit, so a summary is printed then. */
-export function tuiReporter(runId: string, runDirectory: string, onStop: () => void): Reporter {
-  const feed = new Feed(initialView(runId, runDirectory));
+export function tuiReporter(store: RunStore, onStop: () => void): Reporter {
+  const { claude_model, astra_model } = store.load();
+  const feed = new Feed(initialView(store.id, store.directory, { claude: claude_model, astra: astra_model }));
   const stop = () => {
     feed.update((view) => ({ ...view, status: "stopping" }));
     onStop();

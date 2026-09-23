@@ -101,3 +101,17 @@ test("an Astra usage limit found only in stderr keeps the review resumable", asy
     (error) => error instanceof UsageLimitError && /Astra[\s\S]*usage limit[\s\S]*lavista resume/.test(error.message));
   assert.equal(store.load().stage, "review");
 });
+
+test("model flags are passed only when a model was chosen", async (t) => {
+  const store = fixture(t);
+  store.save({ ...store.load(), claude_model: "opus", astra_model: "" });
+  const argsBy: Record<string, string[]> = {};
+  const runner: ProcessRunner = async ({ command, args, stdoutPath }) => {
+    argsBy[command] = args;
+    if (command === "claude") writeFileSync(stdoutPath, JSON.stringify({ type: "result", subtype: "success" }));
+    else writeFileSync(args[args.indexOf("--output-last-message") + 1]!, JSON.stringify({ decision: "done", reason: "ok", next_prompt: "" }));
+  };
+  await runLoop(store, createAgents(runner), signal(), quiet);
+  assert.deepEqual(argsBy.claude?.slice(argsBy.claude.indexOf("--model"), argsBy.claude.indexOf("--model") + 2), ["--model", "opus"]);
+  assert.ok(!argsBy.codex?.includes("--model"));
+});

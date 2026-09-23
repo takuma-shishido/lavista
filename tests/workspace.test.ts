@@ -11,14 +11,17 @@ function workspace(t: { after: (fn: () => void) => void }): Workspace {
   return new Workspace(project);
 }
 
-test("settings fall back to defaults and local config overrides shared config", (t) => {
+test("config layers merge, and limits fall back to defaults", (t) => {
   const ws = workspace(t);
-  assert.deepEqual(ws.loadSettings(), DEFAULT_SETTINGS);
+  assert.deepEqual(ws.loadConfig(), {});
+  const { claude_model: _claude, astra_model: _astra, ...limits } = DEFAULT_SETTINGS;
+  assert.deepEqual(ws.loadLimits(), limits);
   const [shared, local] = ws.configFiles as [string, string];
   mkdirSync(ws.directory);
   writeFileSync(shared, JSON.stringify({ max_iterations: 3, astra_model: "shared" }));
   writeFileSync(local, JSON.stringify({ max_iterations: 8 }));
-  assert.deepEqual(ws.loadSettings(), { ...DEFAULT_SETTINGS, max_iterations: 8, astra_model: "shared" });
+  assert.deepEqual(ws.loadConfig(), { max_iterations: 8, astra_model: "shared" });
+  assert.deepEqual(ws.loadLimits(), { ...limits, max_iterations: 8 });
 });
 
 test("config typos and invalid values are rejected with the file name", (t) => {
@@ -26,9 +29,9 @@ test("config typos and invalid values are rejected with the file name", (t) => {
   const [shared] = ws.configFiles as [string];
   mkdirSync(ws.directory);
   writeFileSync(shared, JSON.stringify({ max_iteration: 3 }));
-  assert.throws(() => ws.loadSettings(), /config\.json[\s\S]*max_iteration/);
+  assert.throws(() => ws.loadConfig(), /config\.json[\s\S]*max_iteration/);
   writeFileSync(shared, JSON.stringify({ timeout: 0 }));
-  assert.throws(() => ws.loadSettings(), /timeout/);
+  assert.throws(() => ws.loadLimits(), /timeout/);
 });
 
 test("runs are created under .lavista/runs and the latest one is found by default", (t) => {
