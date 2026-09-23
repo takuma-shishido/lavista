@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createAgents } from "../src/agents.js";
+import { createAgents, UsageLimitError } from "../src/agents.js";
 import { runLoop } from "../src/loop.js";
 import type { RunState } from "../src/model.js";
 import type { ProcessRunner } from "../src/process.js";
@@ -69,4 +69,35 @@ test("iteration limit stops a continuing review before another worker starts", a
   assert.equal(workers, 1);
   assert.equal(store.load().iteration, 2);
   assert.equal(store.load().stage, "claude");
+});
+
+test("a usage limit stops the CLI immediately and the loop without reviewing", async (t) => {
+  const store = fixture(t);
+  const commands: string[] = [];
+  const runner: ProcessRunner = async ({ command, onLine, signal }) => {
+    commands.push(command);
+    onLine?.(JSON.stringify({ type: "assistant", error: "rate_limit", message: { content: [{ type: "text", text: "5-hour limit reached" }] } }) + "\n");
+    // Like a CLI that keeps waiting: only the limit-triggered abort ends it.
+    if (!signal.aborted) await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+    throw new Error("aborted");
+  };
+  await assert.rejects(runLoop(store, createAgents(runner), signal(), quiet),
+    (error) => error instanceof UsageLimitError && /5-hour limit reached[\s\S]*lavista retry/.test(error.message));
+  assert.deepEqual(commands, ["claude"]);
+  assert.equal(store.load().stage, "claude_running");
+});
+
+test("an Astra usage limit found only in stderr keeps the review resumable", async (t) => {
+  const store = fixture(t);
+  const runner: ProcessRunner = async ({ command, stdoutPath, stderrPath }) => {
+    if (command === "claude") {
+      writeFileSync(stdoutPath, JSON.stringify({ type: "result", subtype: "success" }));
+      return;
+    }
+    writeFileSync(stderrPath, "ERROR: You've hit your usage limit. Try again in 3 days.\n");
+    throw new Error("codex exited 1");
+  };
+  await assert.rejects(runLoop(store, createAgents(runner), signal(), quiet),
+    (error) => error instanceof UsageLimitError && /Astra[\s\S]*usage limit[\s\S]*lavista resume/.test(error.message));
+  assert.equal(store.load().stage, "review");
 });

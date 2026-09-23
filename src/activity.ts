@@ -2,7 +2,8 @@ import { z } from "zod";
 
 /** One human-readable thing an agent did, derived from a line of its JSON event stream. */
 export interface Activity {
-  kind: "info" | "text" | "thinking" | "tool" | "output" | "error";
+  /** `limit`: the agent cannot continue until a usage/rate limit or billing problem is resolved. */
+  kind: "info" | "text" | "thinking" | "tool" | "output" | "error" | "limit";
   text: string;
 }
 
@@ -14,6 +15,19 @@ export function summarize(value: string): string {
   const first = lines[0] ?? "";
   const clipped = first.length > MAX_TEXT ? `${first.slice(0, MAX_TEXT)}…` : first;
   return lines.length > 1 ? `${clipped} (+${lines.length - 1} lines)` : clipped;
+}
+
+const LIMIT = /usage limit|limit reached|rate.?limit|quota|too many requests|\b429\b|credit balance|billing|out of credits/i;
+// Transient retries the CLI handles itself; stopping on these would abort runs that recover.
+const RETRYING = /reconnecting|retrying/i;
+
+/**
+ * Classify a message from an agent's *error channel* (never tool output or prose,
+ * where words like "rate limit" are ordinary content).
+ */
+export function errorActivity(message: string): Activity {
+  const text = summarize(message);
+  return { kind: LIMIT.test(message) && !RETRYING.test(message) ? "limit" : "error", text };
 }
 
 function parseLine<T>(schema: z.ZodType<T>, line: string): T | undefined {
@@ -51,10 +65,17 @@ const claudeBlock = z.discriminatedUnion("type", [
 
 const claudeEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("system"), subtype: z.string(), model: z.string().optional() }),
-  z.object({ type: z.literal(["assistant", "user"]), message: z.object({ content: z.array(z.unknown()) }) }),
+  z.object({
+    type: z.literal(["assistant", "user"]),
+    message: z.object({ content: z.array(z.unknown()) }),
+    // Set on synthetic messages reporting an API failure, e.g. "rate_limit" or "billing_error".
+    error: z.string().optional(),
+  }),
   z.object({
     type: z.literal("result"),
     subtype: z.string(),
+    is_error: z.boolean().optional(),
+    result: z.string().optional(),
     num_turns: z.number().optional(),
     total_cost_usd: z.number().optional(),
     duration_ms: z.number().optional(),
@@ -86,9 +107,15 @@ export function parseClaudeLine(line: string): Activity[] {
     case "system":
       return event.subtype === "init" ? [{ kind: "info", text: `session started${event.model ? ` (${event.model})` : ""}` }] : [];
     case "assistant":
-    case "user":
-      return event.message.content.flatMap((block) => claudeBlockActivity(block) ?? []);
+    case "user": {
+      const activities = event.message.content.flatMap((block) => claudeBlockActivity(block) ?? []);
+      if (event.error === undefined) return activities;
+      const message = activities.map((activity) => activity.text).join(" ") || event.error;
+      const limited = event.error === "rate_limit" || event.error === "billing_error";
+      return [limited ? { kind: "limit", text: summarize(message) } : errorActivity(`${event.error}: ${message}`)];
+    }
     case "result": {
+      if (event.is_error) return [errorActivity(withResetTime(event.result ?? event.subtype))];
       const details = [
         event.num_turns !== undefined ? `${event.num_turns} turns` : undefined,
         event.duration_ms !== undefined ? `${Math.round(event.duration_ms / 1000)}s` : undefined,
@@ -98,6 +125,13 @@ export function parseClaudeLine(line: string): Activity[] {
       return [{ kind: event.subtype === "success" ? "info" : "error", text }];
     }
   }
+}
+
+/** Claude reports usage limits as "…|<unix seconds>"; show the reset time readably. */
+function withResetTime(message: string): string {
+  const match = /^(.*)\|(\d{10})$/.exec(message.trim());
+  if (!match) return message;
+  return `${match[1]} (resets ${new Date(Number(match[2]) * 1000).toLocaleString()})`;
 }
 
 // ---- Codex `exec --json` ----
@@ -147,7 +181,7 @@ function codexItemActivity(phase: "item.started" | "item.completed", value: unkn
     case "file_change": return { kind: "tool", text: `edit ${data.changes.map((change) => change.path).join(", ")}` };
     case "mcp_tool_call": return { kind: "tool", text: `${data.server}.${data.tool}` };
     case "web_search": return { kind: "tool", text: `search ${data.query}` };
-    case "error": return { kind: "error", text: summarize(data.message) };
+    case "error": return errorActivity(data.message);
   }
 }
 
@@ -166,8 +200,8 @@ export function parseCodexLine(line: string): Activity[] {
         ? `finished (${event.usage.input_tokens} in / ${event.usage.output_tokens} out tokens)`
         : "finished" }];
     case "turn.failed":
-      return [{ kind: "error", text: summarize(event.error.message) }];
+      return [errorActivity(event.error.message)];
     case "error":
-      return [{ kind: "error", text: summarize(event.message) }];
+      return [errorActivity(event.message)];
   }
 }

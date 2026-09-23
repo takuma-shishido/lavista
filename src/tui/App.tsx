@@ -11,7 +11,7 @@ const AGENTS: Record<AgentName, { title: string; color: string }> = {
 };
 
 const KIND_COLORS: Partial<Record<Activity["kind"], string>> = {
-  info: "gray", tool: "yellow", output: "gray", error: "red",
+  info: "gray", tool: "yellow", output: "gray", error: "red", limit: "redBright",
 };
 
 function colorOf({ kind }: Activity): { color?: string } {

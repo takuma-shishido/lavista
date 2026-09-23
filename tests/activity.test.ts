@@ -51,3 +51,19 @@ test("unknown or malformed lines are ignored rather than stopping the run", () =
   assert.deepEqual(parseCodexLine(line({ type: "item.completed", item: { type: "future_item" } })), []);
   assert.equal(summarize("x".repeat(500)).length, 401);
 });
+
+test("usage limits are recognised only on error channels", () => {
+  assert.deepEqual(parseClaudeLine(line({ type: "assistant", error: "rate_limit",
+    message: { content: [{ type: "text", text: "5-hour limit reached ∙ resets 3pm" }] } })),
+  [{ kind: "limit", text: "5-hour limit reached ∙ resets 3pm" }]);
+  const [result] = parseClaudeLine(line({ type: "result", subtype: "success", is_error: true, result: "Claude AI usage limit reached|1790000000" }));
+  assert.equal(result?.kind, "limit");
+  assert.match(result?.text ?? "", /^Claude AI usage limit reached \(resets .+\)$/);
+  assert.equal(parseClaudeLine(line({ type: "result", subtype: "success", is_error: true, result: "Invalid API key" }))[0]?.kind, "error");
+  assert.equal(parseCodexLine(line({ type: "error", message: "You've hit your usage limit. Try again in 2 hours." }))[0]?.kind, "limit");
+  assert.equal(parseCodexLine(line({ type: "turn.failed", error: { message: "exceeded retry limit, last status: 429 Too Many Requests" } }))[0]?.kind, "limit");
+  // Transient retries and ordinary content must not stop the run.
+  assert.equal(parseCodexLine(line({ type: "error", message: "Reconnecting... 1/5 (429 Too Many Requests)" }))[0]?.kind, "error");
+  assert.equal(parseClaudeLine(line({ type: "assistant", message: { content: [{ type: "text", text: "I'll add rate limit handling." }] } }))[0]?.kind, "text");
+  assert.equal(parseClaudeLine(line({ type: "user", message: { content: [{ type: "tool_result", content: "429 Too Many Requests", is_error: true }] } }))[0]?.kind, "error");
+});

@@ -19,7 +19,7 @@ export interface Reporter {
 }
 
 const ICONS: Record<Activity["kind"], string> = {
-  info: "·", text: "●", thinking: "∴", tool: "⏺", output: "⎿", error: "✗",
+  info: "·", text: "●", thinking: "∴", tool: "⏺", output: "⎿", error: "✗", limit: "‼",
 };
 
 export function formatActivity(activity: Activity): string {

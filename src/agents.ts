@@ -1,10 +1,10 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { parseClaudeLine, parseCodexLine } from "./activity.js";
+import { errorActivity, parseClaudeLine, parseCodexLine } from "./activity.js";
 import type { Activity } from "./activity.js";
 import type { AgentName, Emit } from "./events.js";
 import { parseReview, reviewJsonSchema } from "./model.js";
 import type { Review, RunningState, RunState } from "./model.js";
-import type { ProcessRunner } from "./process.js";
+import type { Invocation, ProcessRunner } from "./process.js";
 import { readJson, RunStore, saveJson } from "./store.js";
 
 const REVIEW_INSTRUCTIONS = `You are Astra, reviewing Claude Code's work against the ORIGINAL user goal.
@@ -74,14 +74,51 @@ function reviewPrompt(state: RunState, store: RunStore): string {
   return `${REVIEW_INSTRUCTIONS}\n\n${evidence}`;
 }
 
+/** An agent reported a usage/rate limit or billing problem; retrying before it resets cannot succeed. */
+export class UsageLimitError extends Error {
+  constructor(readonly agent: AgentName, detail: string) {
+    const [name, next] = agent === "claude" ? ["Claude", "lavista retry"] : ["Astra (Codex)", "lavista resume"];
+    super(`${name} hit a usage limit: ${detail}\nState and logs are saved. Once the limit resets, run \`${next}\`.`);
+  }
+}
+
+/** The last limit message in a failed CLI's stderr, for errors that never reach the JSON stream. */
+function limitInStderr(path: string): string | undefined {
+  if (!existsSync(path)) return undefined;
+  return readFileSync(path, "utf8").split("\n")
+    .map(errorActivity)
+    .findLast((activity) => activity.kind === "limit")?.text;
+}
+
 export interface Agents {
   execute(state: RunningState, store: RunStore, signal: AbortSignal): Promise<void>;
   review(state: RunState, store: RunStore, signal: AbortSignal): Promise<Review>;
 }
 
 export function createAgents(run: ProcessRunner, emit: Emit = () => {}): Agents {
-  const follow = (agent: AgentName, parse: (line: string) => Activity[]) => (line: string) => {
-    for (const activity of parse(line)) emit({ type: "activity", agent, activity });
+  /**
+   * Run an agent CLI while showing its activity. A usage limit stops it at once, rather than
+   * letting the CLI retry until the timeout, and stops the loop with UsageLimitError.
+   */
+  const invoke = async (agent: AgentName, parse: (line: string) => Activity[], invocation: Omit<Invocation, "onLine">) => {
+    const limited = new AbortController();
+    let limit: string | undefined;
+    const onLine = (line: string) => {
+      for (const activity of parse(line)) {
+        emit({ type: "activity", agent, activity });
+        if (activity.kind === "limit" && limit === undefined) {
+          limit = activity.text;
+          limited.abort();
+        }
+      }
+    };
+    try {
+      await run({ ...invocation, signal: AbortSignal.any([invocation.signal, limited.signal]), onLine });
+    } catch (error) {
+      limit ??= limitInStderr(invocation.stderrPath);
+      if (limit === undefined) throw error;
+    }
+    if (limit !== undefined) throw new UsageLimitError(agent, limit);
   };
 
   return {
@@ -89,10 +126,10 @@ export function createAgents(run: ProcessRunner, emit: Emit = () => {}): Agents 
       const step = store.step(state.iteration);
       const prompt = `Original user goal:\n${state.goal}\n\nCurrent task:\n${state.next_prompt}`;
       writeFileSync(step.prompt, prompt);
-      await run({
+      await invoke("claude", parseClaudeLine, {
         command: "claude", args: claudeArgs(state), input: prompt, cwd: state.project,
         stdoutPath: step.claudeEvents, stderrPath: step.claudeStderr,
-        timeoutSeconds: state.timeout, signal, onLine: follow("claude", parseClaudeLine),
+        timeoutSeconds: state.timeout, signal,
       });
       verifyClaudeResult(step.claudeEvents);
     },
@@ -103,10 +140,10 @@ export function createAgents(run: ProcessRunner, emit: Emit = () => {}): Agents 
       writeFileSync(step.reviewPrompt, prompt);
       saveJson(store.reviewSchema, reviewJsonSchema);
       rmSync(step.reviewResponse, { force: true });
-      await run({
+      await invoke("astra", parseCodexLine, {
         command: "codex", args: astraArgs(state, store.reviewSchema, step.reviewResponse), input: prompt,
         cwd: state.project, stdoutPath: step.astraEvents, stderrPath: step.astraStderr,
-        timeoutSeconds: state.timeout, signal, onLine: follow("astra", parseCodexLine),
+        timeoutSeconds: state.timeout, signal,
       });
       const review = parseReview(readJson(step.reviewResponse));
       saveJson(step.review, review);

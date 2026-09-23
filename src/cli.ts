@@ -2,7 +2,7 @@
 import { Command, CommanderError } from "@commander-js/extra-typings";
 import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { createAgents, verifyClaudeResult } from "./agents.js";
+import { createAgents, UsageLimitError, verifyClaudeResult } from "./agents.js";
 import { consoleReporter } from "./events.js";
 import type { Reporter } from "./events.js";
 import { runLoop } from "./loop.js";
@@ -130,7 +130,8 @@ if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.me
       process.exitCode = error.exitCode;
     } else {
       console.error(`Stopped: ${error instanceof Error ? error.message : String(error)}`);
-      process.exitCode = error instanceof InterruptedError ? 130 : 1;
+      // 75 (EX_TEMPFAIL): a usage limit; the same command can succeed once it resets.
+      process.exitCode = error instanceof InterruptedError ? 130 : error instanceof UsageLimitError ? 75 : 1;
     }
   } finally {
     process.off("SIGINT", interrupt);
