@@ -74,7 +74,7 @@ export function parseCodexCatalog(json: string): ModelOption[] {
 export async function codexModels(): Promise<ModelOption[]> {
   const cache = join(process.env.CODEX_HOME ?? join(homedir(), ".codex"), "models_cache.json");
   const cached = existsSync(cache) ? parseCodexCatalog(readFileSync(cache, "utf8")) : [];
-  const builtIn = await execa("codex", ["debug", "models"], { reject: false, timeout: 15_000 });
+  const builtIn = await execa("codex", ["debug", "models"], { stdin: "ignore", reject: false, timeout: 15_000 });
   const models = [...cached, ...(builtIn.failed ? [] : parseCodexCatalog(builtIn.stdout))];
   return models.filter((model, index) => models.findIndex((other) => other.value === model.value) === index);
 }
@@ -114,9 +114,12 @@ export interface ModelPicker {
 }
 
 export function interactivePicker(): ModelPicker {
-  // Fetch Codex's catalog while the Claude questions are answered; it takes a moment.
-  const codex = codexModels().catch(() => []);
-  const catalog = (agent: AgentName) => (agent === "claude" ? Promise.resolve(CLAUDE_MODELS) : codex);
+  // Fetched on the first question (usually Claude's), so it is ready by Astra's; never when nothing is asked.
+  let codex: Promise<ModelOption[]> | undefined;
+  const catalog = (agent: AgentName) => {
+    codex ??= codexModels().catch(() => []);
+    return agent === "claude" ? Promise.resolve(CLAUDE_MODELS) : codex;
+  };
   const cli = (agent: AgentName) => (agent === "claude" ? "claude" : "codex");
   return {
     model: async (agent) =>

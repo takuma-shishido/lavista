@@ -90,7 +90,7 @@ function Decisions({ view, limit }: { view: View; limit: number }) {
 }
 
 function Footer({ view }: { view: View }) {
-  if (view.status === "stopping") return <Text color="yellow">Stopping… waiting for the agents to exit</Text>;
+  if (view.status === "stopping") return <Text color="yellow">Stopping… waiting for the agents to exit (q / Ctrl+C again: force)</Text>;
   if (view.notice) return <Text wrap="truncate-end">{view.notice}</Text>;
   return <Text dimColor>q / Ctrl+C: stop (state and logs are kept; continue with `lavista resume`)</Text>;
 }
@@ -98,9 +98,10 @@ function Footer({ view }: { view: View }) {
 export function App({ feed, onStop }: { feed: Feed; onStop: () => void }) {
   const view = useSyncExternalStore(feed.subscribe, feed.getSnapshot);
   const { columns, rows } = useWindowSize();
+  // Stays active while stopping: raw mode must remain on, and a second press forces the stop.
   useInput((input, key) => {
     if (input === "q" || (key.ctrl && input === "c")) onStop();
-  }, { isActive: view.status === "running" });
+  }, { isActive: view.status !== "stopped" });
 
   const decisionRows = Math.min(view.decisions.length, 3);
   const bodyRows = Math.max(rows - 2 - decisionRows, 8);

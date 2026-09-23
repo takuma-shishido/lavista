@@ -4,8 +4,11 @@ import type { RunStore } from "../store.js";
 import { App } from "./App.js";
 import { Feed, initialView } from "./view.js";
 
-/** Full-screen view of both agents. The alternate screen is restored on exit, so a summary is printed then. */
-export function tuiReporter(store: RunStore, onStop: () => void): Reporter {
+/**
+ * Full-screen view of both agents. The alternate screen is restored on exit, so a summary is printed then.
+ * The first stop key asks the agents to stop; the next one forces it.
+ */
+export function tuiReporter(store: RunStore, onStop: () => void, onForce: () => void): Reporter {
   const state = store.load();
   const describe = (model: string, effort: string) =>
     [model || "CLI default model", effort && `effort ${effort}`].filter(Boolean).join(" · ");
@@ -14,6 +17,7 @@ export function tuiReporter(store: RunStore, onStop: () => void): Reporter {
     astra: describe(state.astra_model, state.astra_effort),
   }));
   const stop = () => {
+    if (feed.getSnapshot().status !== "running") return onForce();
     feed.update((view) => ({ ...view, status: "stopping" }));
     onStop();
   };

@@ -37,6 +37,13 @@ test("TUI shows both agents' activity side by side and stops on q", async () => 
     app.stdin.write("q");
     await settle();
     assert.equal(stops, 1);
+    // Keys still work while stopping, so a second press can force the stop.
+    feed.update((view) => ({ ...view, status: "stopping" }));
+    await settle();
+    assert.match(app.lastFrame() ?? "", /again: force/);
+    app.stdin.write("\u0003");
+    await settle();
+    assert.equal(stops, 2);
   } finally {
     app.unmount();
   }

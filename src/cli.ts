@@ -9,7 +9,7 @@ import { runLoop } from "./loop.js";
 import { CLAUDE_EFFORTS } from "./model.js";
 import type { RunState } from "./model.js";
 import { chooseModels, interactivePicker } from "./models.js";
-import { InterruptedError, runProcess } from "./process.js";
+import { forceKillAll, InterruptedError, runProcess } from "./process.js";
 import type { RunStore } from "./store.js";
 import { tuiReporter } from "./tui/index.js";
 import { Workspace } from "./workspace.js";
@@ -31,7 +31,7 @@ function createProgram(signal: AbortSignal, workspace: Workspace) {
   const stop = new AbortController();
   const cancel = AbortSignal.any([signal, stop.signal]);
   const reporter = (store: RunStore): Reporter => isInteractive()
-    ? tuiReporter(store, () => stop.abort(new InterruptedError()))
+    ? tuiReporter(store, () => stop.abort(new InterruptedError()), forceKillAll)
     : consoleReporter();
 
   const run = async (store: RunStore) => {
@@ -136,7 +136,8 @@ export async function main(args: string[], signal: AbortSignal, workspace = new 
 // Keep importable main free of signal handlers for tests and embedding.
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const controller = new AbortController();
-  const interrupt = () => controller.abort(new InterruptedError());
+  // First Ctrl+C / SIGTERM stops gracefully; another one kills the agents immediately.
+  const interrupt = () => (controller.signal.aborted ? forceKillAll() : controller.abort(new InterruptedError()));
   process.on("SIGINT", interrupt);
   process.on("SIGTERM", interrupt);
   try {
