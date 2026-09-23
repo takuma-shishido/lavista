@@ -1,0 +1,32 @@
+{
+  "name": "lavista",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Claude executes. Astra reviews. A fresh session takes the next step.",
+  "type": "module",
+  "bin": {
+    "lavista": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.test.json --noEmit",
+    "test": "tsc -p tsconfig.test.json && node --test .test-build/tests/*.test.js",
+    "start": "node dist/cli.js",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0"
+  }
+}
