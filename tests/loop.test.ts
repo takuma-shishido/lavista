@@ -29,12 +29,12 @@ test("each iteration uses a fresh session and review includes all earlier eviden
   const store = fixture(t);
   const sessions: string[] = [];
   const prompts: string[] = [];
-  const runner: ProcessRunner = async ({ command, args, prompt, logPrefix }) => {
+  const runner: ProcessRunner = async ({ command, args, input, stdoutPath }) => {
     if (command === "claude") {
       sessions.push(args[args.indexOf("--session-id") + 1]!);
-      writeFileSync(`${logPrefix}.jsonl`, JSON.stringify({ type: "result", subtype: "success", result: `evidence ${sessions.length}` }));
+      writeFileSync(stdoutPath, JSON.stringify({ type: "result", subtype: "success", result: `evidence ${sessions.length}` }));
     } else {
-      prompts.push(prompt);
+      prompts.push(input);
       writeFileSync(args[args.indexOf("--output-last-message") + 1]!, JSON.stringify({
         decision: prompts.length === 1 ? "continue" : "done", reason: "verified", next_prompt: "Finish result.txt",
       }));
@@ -45,7 +45,7 @@ test("each iteration uses a fresh session and review includes all earlier eviden
   assert.equal(new Set(sessions).size, 2);
   assert.match(prompts[1]!, /evidence 1/);
   assert.match(prompts[1]!, /evidence 2/);
-  assert.match(readFileSync(join(store.step(2), "prompt.txt"), "utf8"), /Finish result.txt/);
+  assert.match(readFileSync(store.step(2).prompt, "utf8"), /Finish result.txt/);
 });
 
 test("failed worker is persisted and never replayed by ordinary resume", async (t) => {

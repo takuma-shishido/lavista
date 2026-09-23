@@ -1,6 +1,6 @@
 # lavista
 
-Claude Codeが実行し、Codex CLIのAstraが履歴を検証して次のプロンプトを作り、Claudeの新規セッションで続行するローカルツールです。TypeScript / Node.jsで実装した、macOS / Linux向けのCLIです。Node.js 22以上が必要です。実行時の外部ライブラリ依存はありません。
+Claude Codeが実行し、Codex CLIのAstraが履歴を検証して次のプロンプトを作り、Claudeの新規セッションで続行するローカルツールです。TypeScript / Node.jsで実装した、macOS / Linux向けのCLIです。Node.js 22.12以上が必要です。
 
 ## 準備
 
@@ -80,15 +80,20 @@ lavista resume ./runs/first --max-history-bytes 2000000
 ## 構成
 
 - `src/loop.ts` — 実行・確認・停止の状態遷移
-- `src/agents.ts` — Claude / AstraのCLI引数、履歴の組み立て、応答の検証
+- `src/agents.ts` — Claude / AstraのCLI引数、履歴の組み立て、実行結果の確認
 - `src/process.ts` — 子プロセス起動、ログ保存、タイムアウト・中断
-- `src/store.ts` — 状態の保存と多重起動防止
-- `src/model.ts` — 状態・判定の型と外部JSONの検証
+- `src/store.ts` — 状態・反復ごとのファイル配置の保存と多重起動防止
+- `src/model.ts` — 状態・判定のスキーマ（型・検証・Astra向けJSON Schemaを一元定義）
 - `src/cli.ts` — コマンド引数と開始・再開操作
 
 Python版と保存データの形式は共通です。ただし多重起動防止の仕組みが異なるため、同じrunをPython版と同時に操作しないでください。強制終了や電源断で `.lavista-lock` が残った場合は、中の `owner.json` にあるプロセスが停止済みであることを確認してから、そのロックディレクトリを削除してください。通常のCtrl+Cでは自動解除します。
 
-子プロセス制御にはNode.js標準の[child_process](https://nodejs.org/api/child_process.html)を使用しています。
+主な依存ライブラリ：
+
+- [execa](https://github.com/sindresorhus/execa) — 子プロセス起動、タイムアウト・中断時のプロセスグループ単位の停止
+- [zod](https://zod.dev) — 保存状態とAstra応答の検証、構造化出力用JSON Schemaの生成
+- [commander](https://github.com/tj/commander.js) — サブコマンド・オプションの解析とヘルプ
+- [write-file-atomic](https://github.com/npm/write-file-atomic) — 状態ファイルのアトミックな書き込み
 
 ## 開発用テスト
 
