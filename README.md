@@ -25,6 +25,27 @@ lavista start task.txt
 
 カレントディレクトリが対象プロジェクトになり、成果物はそこへ直接反映されます。隔離したい場合は、事前に用意した作業用コピーやworktreeで実行してください。実行ログは `.lavista/runs/<開始時刻(UTC)>/` に保存されます。
 
+## 画面
+
+端末で実行すると、ClaudeとAstra（Codex）の動作をリアルタイムで表示するTUIが起動します。
+
+```
+lavista  run 2026-09-24T01-23-45Z  iteration 1/5  Astra (Codex) ⠇ 00:12
+╭ Claude Code ─────────────────────────╮╭ Astra (Codex) ───────────────────────╮
+│ ∴ I need to create result.txt        ││ ∴ Verify result.txt exists           │
+│ ⏺ Write /p/result.txt                ││ ⏺ $ bash -lc "cat result.txt"        │
+│ ⎿ File created successfully          ││ ⎿ ok: ok                             │
+│ · finished: success (3 turns, $0.03) ││ · finished (5120 in / 210 out tokens)│
+╰──────────────────────────────────────╯╰──────────────────────────────────────╯
+#1 done result.txt exists and tests pass
+```
+
+- 左右（幅100桁未満では上下）にClaude・Astraそれぞれの発言（●）、思考（∴）、ツール呼び出し（⏺）、結果（⎿）、エラー（✗）を表示します。各行は1行に要約され、完全なログはrunディレクトリに保存されます。
+- ヘッダーに反復回数と実行中のエージェント・経過時間、下部にAstraの判定を表示します。
+- `q` または `Ctrl+C` で停止します（状態とログは残り、`lavista resume` などで再開できます）。
+- 終了すると元の画面に戻り、判定の要約とログの場所を表示します。
+- パイプやCIなど端末でない出力先では、同じ内容を1行ずつのテキストで出力します。
+
 ## 設定
 
 設定はコマンド引数ではなく `.lavista/` 以下のJSONファイルに書きます。どちらも省略可能で、書いた項目だけが既定値を上書きします。
@@ -105,6 +126,9 @@ runディレクトリの `001/`、`002/`…にClaudeの入力・全出力、Astr
 
 - `src/loop.ts` — 実行・確認・停止の状態遷移
 - `src/agents.ts` — Claude / AstraのCLI引数、履歴の組み立て、実行結果の確認
+- `src/activity.ts` — Claude（stream-json）/ Codex（`--json`）の出力イベントを表示用の要約に変換
+- `src/events.ts` — ループから表示へのイベント定義と非TTY用の行出力
+- `src/tui/` — Inkによる全画面表示（`view.ts` が状態、`App.tsx` が画面）
 - `src/process.ts` — 子プロセス起動、ログ保存、タイムアウト・中断
 - `src/store.ts` — 状態・反復ごとのファイル配置の保存と多重起動防止
 - `src/model.ts` — 状態・判定のスキーマ（型・検証・Astra向けJSON Schemaを一元定義）
@@ -118,6 +142,7 @@ Python版と保存データの形式は共通です。ただし多重起動防�
 - [execa](https://github.com/sindresorhus/execa) — 子プロセス起動、タイムアウト・中断時のプロセスグループ単位の停止
 - [zod](https://zod.dev) — 保存状態とAstra応答の検証、構造化出力用JSON Schemaの生成
 - [commander](https://github.com/tj/commander.js) — サブコマンドの解析とヘルプ
+- [Ink](https://github.com/vadimdemedes/ink) / React — TUI表示
 - [write-file-atomic](https://github.com/npm/write-file-atomic) — 状態ファイルのアトミックな書き込み
 
 ## 開発用テスト

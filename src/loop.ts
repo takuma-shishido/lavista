@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Agents } from "./agents.js";
+import type { Emit } from "./events.js";
 import type { RunningState, RunState } from "./model.js";
 import type { RunStore } from "./store.js";
 
@@ -7,7 +8,7 @@ export async function runLoop(
   store: RunStore,
   agents: Agents,
   signal: AbortSignal,
-  report: (message: string) => void = console.log,
+  emit: Emit,
 ): Promise<void> {
   let state: RunState = store.load();
   while (true) {
@@ -15,17 +16,17 @@ export async function runLoop(
     switch (state.stage) {
       case "done":
       case "needs_input":
-        report(`${state.stage}: ${state.reason}`);
+        emit({ type: "notice", message: `${state.stage}: ${state.reason}` });
         return;
       case "claude_running":
         throw new Error("Previous Claude execution was interrupted or failed. Inspect logs, then run `lavista retry` or `lavista review`.");
       case "claude": {
         if (state.iteration > state.max_iterations) {
-          report("Maximum iterations reached. Raise max_iterations in .lavista/config.local.json, then run `lavista resume`.");
+          emit({ type: "notice", message: "Maximum iterations reached. Raise max_iterations in .lavista/config.local.json, then run `lavista resume`." });
           return;
         }
         store.createStep(state.iteration);
-        report(`[${state.iteration}/${state.max_iterations}] claude`);
+        emit({ type: "step", agent: "claude", iteration: state.iteration, maxIterations: state.max_iterations });
         const running: RunningState = { ...state, stage: "claude_running", session_id: randomUUID() };
         // Persist intent before launch. A failed worker must never replay automatically.
         store.save(running);
@@ -34,8 +35,9 @@ export async function runLoop(
         break;
       }
       case "review": {
-        report(`[${state.iteration}/${state.max_iterations}] review`);
+        emit({ type: "step", agent: "astra", iteration: state.iteration, maxIterations: state.max_iterations });
         const review = await agents.review(state, store, signal);
+        emit({ type: "decision", iteration: state.iteration, review });
         state = review.decision === "continue"
           ? { ...state, stage: "claude", iteration: state.iteration + 1, next_prompt: review.next_prompt }
           : { ...state, stage: review.decision, reason: review.reason };

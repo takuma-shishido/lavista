@@ -1,4 +1,7 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { parseClaudeLine, parseCodexLine } from "./activity.js";
+import type { Activity } from "./activity.js";
+import type { AgentName, Emit } from "./events.js";
 import { parseReview, reviewJsonSchema } from "./model.js";
 import type { Review, RunningState, RunState } from "./model.js";
 import type { ProcessRunner } from "./process.js";
@@ -76,7 +79,11 @@ export interface Agents {
   review(state: RunState, store: RunStore, signal: AbortSignal): Promise<Review>;
 }
 
-export function createAgents(run: ProcessRunner): Agents {
+export function createAgents(run: ProcessRunner, emit: Emit = () => {}): Agents {
+  const follow = (agent: AgentName, parse: (line: string) => Activity[]) => (line: string) => {
+    for (const activity of parse(line)) emit({ type: "activity", agent, activity });
+  };
+
   return {
     async execute(state, store, signal) {
       const step = store.step(state.iteration);
@@ -85,7 +92,7 @@ export function createAgents(run: ProcessRunner): Agents {
       await run({
         command: "claude", args: claudeArgs(state), input: prompt, cwd: state.project,
         stdoutPath: step.claudeEvents, stderrPath: step.claudeStderr,
-        timeoutSeconds: state.timeout, signal,
+        timeoutSeconds: state.timeout, signal, onLine: follow("claude", parseClaudeLine),
       });
       verifyClaudeResult(step.claudeEvents);
     },
@@ -99,7 +106,7 @@ export function createAgents(run: ProcessRunner): Agents {
       await run({
         command: "codex", args: astraArgs(state, store.reviewSchema, step.reviewResponse), input: prompt,
         cwd: state.project, stdoutPath: step.astraEvents, stderrPath: step.astraStderr,
-        timeoutSeconds: state.timeout, signal,
+        timeoutSeconds: state.timeout, signal, onLine: follow("astra", parseCodexLine),
       });
       const review = parseReview(readJson(step.reviewResponse));
       saveJson(step.review, review);

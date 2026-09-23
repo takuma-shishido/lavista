@@ -18,6 +18,19 @@ test("process adapter passes literal input and saves stdout/stderr", async (t) =
   assert.equal(readFileSync(stderrPath, "utf8"), "diagnostic");
 });
 
+test("stdout lines are streamed to onLine while being saved unchanged", async (t) => {
+  const cwd = mkdtempSync(join(tmpdir(), "lavista-process-"));
+  t.after(() => rmSync(cwd, { recursive: true, force: true }));
+  const stdoutPath = join(cwd, "child.jsonl");
+  const lines: string[] = [];
+  await runProcess({ command: process.execPath,
+    args: ["-e", "process.stdin.pipe(process.stdout)"], input: '{"a":1}\n{"b":2}',
+    cwd, stdoutPath, stderrPath: join(cwd, "child.stderr"), timeoutSeconds: 5,
+    signal: new AbortController().signal, onLine: (line) => lines.push(line) });
+  assert.deepEqual(lines, ['{"a":1}\n', '{"b":2}']);
+  assert.equal(readFileSync(stdoutPath, "utf8"), '{"a":1}\n{"b":2}');
+});
+
 test("cancellation stops a running CLI and returns control", { timeout: 10000 }, async (t) => {
   const cwd = mkdtempSync(join(tmpdir(), "lavista-process-"));
   t.after(() => rmSync(cwd, { recursive: true, force: true }));

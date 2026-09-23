@@ -3,10 +3,13 @@ import { Command, CommanderError } from "@commander-js/extra-typings";
 import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createAgents, verifyClaudeResult } from "./agents.js";
+import { consoleReporter } from "./events.js";
+import type { Reporter } from "./events.js";
 import { runLoop } from "./loop.js";
 import type { RunState } from "./model.js";
-import { runProcess } from "./process.js";
+import { InterruptedError, runProcess } from "./process.js";
 import type { RunStore } from "./store.js";
+import { tuiReporter } from "./tui/index.js";
 import { Workspace } from "./workspace.js";
 
 function nonemptyFile(path: string): string {
@@ -20,7 +23,21 @@ function expectStage(state: RunState, stage: RunState["stage"], command: string)
 }
 
 function createProgram(signal: AbortSignal, workspace: Workspace) {
-  const run = (store: RunStore) => runLoop(store, createAgents(runProcess), signal);
+  // The TUI reads keys in raw mode, where Ctrl+C is a key press rather than SIGINT.
+  const stop = new AbortController();
+  const cancel = AbortSignal.any([signal, stop.signal]);
+  const reporter = (store: RunStore): Reporter => process.stdout.isTTY && process.stdin.isTTY
+    ? tuiReporter(store.id, store.directory, () => stop.abort(new InterruptedError()))
+    : consoleReporter();
+
+  const run = async (store: RunStore) => {
+    const { emit, close } = reporter(store);
+    try {
+      await runLoop(store, createAgents(runProcess, emit), cancel, emit);
+    } finally {
+      await close();
+    }
+  };
 
   /** Reload settings from config, apply a stage transition, then continue the loop. */
   const resumeWith = (transition: (state: RunState, store: RunStore) => RunState) => async (id?: string) => {
@@ -50,7 +67,6 @@ function createProgram(signal: AbortSignal, workspace: Workspace) {
         ...workspace.loadSettings(),
         goal, project: workspace.project, stage: "claude", iteration: 1, next_prompt: goal,
       });
-      console.log(`run: ${store.id}`);
       await store.exclusive(() => run(store));
     });
 
@@ -103,7 +119,7 @@ export async function main(args: string[], signal: AbortSignal, workspace = new 
 // Keep importable main free of signal handlers for tests and embedding.
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const controller = new AbortController();
-  const interrupt = () => controller.abort(new Error("Interrupted. Logs and state saved."));
+  const interrupt = () => controller.abort(new InterruptedError());
   process.on("SIGINT", interrupt);
   process.on("SIGTERM", interrupt);
   try {
@@ -114,7 +130,7 @@ if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.me
       process.exitCode = error.exitCode;
     } else {
       console.error(`Stopped: ${error instanceof Error ? error.message : String(error)}`);
-      process.exitCode = controller.signal.aborted ? 130 : 1;
+      process.exitCode = error instanceof InterruptedError ? 130 : 1;
     }
   } finally {
     process.off("SIGINT", interrupt);
