@@ -1,3 +1,5 @@
+import stringWidth from "string-width";
+import stripAnsi from "strip-ansi";
 import type { Activity } from "./activity.js";
 import type { Review } from "./model.js";
 
@@ -18,12 +20,25 @@ export interface Reporter {
   close(): Promise<void>;
 }
 
-const ICONS: Record<Activity["kind"], string> = {
-  info: "·", text: "●", thinking: "∴", tool: "⏺", output: "⎿", error: "✗", limit: "‼",
+// One column in every terminal: no emoji-capable symbols (e.g. ⏺ or ‼, which many terminals draw two wide).
+export const ICONS: Record<Activity["kind"], string> = {
+  info: "·", text: "●", thinking: "∴", tool: "▸", output: "⎿", error: "✗", limit: "⊘",
 };
 
+/**
+ * Text for a single terminal row whose width the layout can measure exactly: no escape sequences,
+ * no tabs, newlines or other control characters, and symbols that may render as emoji marked as
+ * emoji (VS16) so they are measured two wide like terminals draw them.
+ */
+export function displayText(text: string): string {
+  return stripAnsi(text)
+    .replace(/\t/g, "  ")
+    .replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ")
+    .replace(/\p{Extended_Pictographic}(?!\uFE0F)/gu, (symbol) => (stringWidth(symbol) === 1 ? `${symbol}\uFE0F` : symbol));
+}
+
 export function formatActivity(activity: Activity): string {
-  return `${ICONS[activity.kind]} ${activity.text}`;
+  return `${ICONS[activity.kind]} ${displayText(activity.text)}`;
 }
 
 /** Line-oriented output for pipes, CI and other non-interactive terminals. */

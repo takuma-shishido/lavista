@@ -1,7 +1,7 @@
 import { Box, Text, useAnimation, useInput, useWindowSize } from "ink";
 import { useSyncExternalStore } from "react";
 import type { Activity } from "../activity.js";
-import { formatActivity } from "../events.js";
+import { displayText, formatActivity } from "../events.js";
 import type { AgentName } from "../events.js";
 import type { Feed, View } from "./view.js";
 
@@ -82,7 +82,7 @@ function Decisions({ view, limit }: { view: View; limit: number }) {
       {view.decisions.slice(-limit).map(({ iteration, review }) => (
         <Text key={iteration} wrap="truncate-end">
           <Text color={DECISION_COLORS[review.decision]} bold>#{iteration} {review.decision}</Text>
-          <Text> {review.reason}</Text>
+          <Text> {displayText(review.reason)}</Text>
         </Text>
       ))}
     </Box>
@@ -91,7 +91,7 @@ function Decisions({ view, limit }: { view: View; limit: number }) {
 
 function Footer({ view }: { view: View }) {
   if (view.status === "stopping") return <Text color="yellow">Stopping… waiting for the agents to exit (q / Ctrl+C again: force)</Text>;
-  if (view.notice) return <Text wrap="truncate-end">{view.notice}</Text>;
+  if (view.notice) return <Text wrap="truncate-end">{displayText(view.notice)}</Text>;
   return <Text dimColor>q / Ctrl+C: stop (state and logs are kept; continue with `lavista resume`)</Text>;
 }
 

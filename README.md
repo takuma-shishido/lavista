@@ -33,14 +33,14 @@ lavista start task.txt
 lavista  run 2026-09-24T01-23-45Z  iteration 1/5  Astra (Codex) ⠇ 00:12
 ╭ Claude Code ─────────────────────────╮╭ Astra (Codex) ───────────────────────╮
 │ ∴ I need to create result.txt        ││ ∴ Verify result.txt exists           │
-│ ⏺ Write /p/result.txt                ││ ⏺ $ bash -lc "cat result.txt"        │
+│ ▸ Write /p/result.txt                ││ ▸ $ bash -lc "cat result.txt"        │
 │ ⎿ File created successfully          ││ ⎿ ok: ok                             │
 │ · finished: success (3 turns, $0.03) ││ · finished (5120 in / 210 out tokens)│
 ╰──────────────────────────────────────╯╰──────────────────────────────────────╯
 #1 done result.txt exists and tests pass
 ```
 
-- 左右（幅100桁未満では上下）にClaude・Astraそれぞれの発言（●）、思考（∴）、ツール呼び出し（⏺）、結果（⎿）、エラー（✗）を表示します。各行は1行に要約され、完全なログはrunディレクトリに保存されます。
+- 左右（幅100桁未満では上下）にClaude・Astraそれぞれの発言（●）、思考（∴）、ツール呼び出し（▸）、結果（⎿）、エラー（✗）、使用量上限（⊘）を表示します。各行は1行に要約され、完全なログはrunディレクトリに保存されます。表示前にタブ・制御文字・色付けのエスケープを取り除き、絵文字として描かれうる記号は幅2として扱うので、出力内容によって枠がずれることはありません。
 - ヘッダーに反復回数と実行中のエージェント・経過時間、下部にAstraの判定を表示します。
 - `q` または `Ctrl+C` で停止します（状態とログは残り、`lavista resume` などで再開できます）。各CLIに終了を求め、5秒以内に終わらなければ強制終了します。もう一度押すと待たずに強制終了します。端末でない場合の `Ctrl+C`（SIGINT）も同じく2回目で強制終了します。
 - 終了すると元の画面に戻り、判定の要約とログの場所を表示します。

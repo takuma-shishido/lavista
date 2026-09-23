@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import stringWidth from "string-width";
 import { claudeModelMismatch, parseClaudeLine, parseCodexLine, summarize } from "../src/activity.js";
+import { displayText, ICONS } from "../src/events.js";
 
 const line = (value: unknown) => JSON.stringify(value);
 
@@ -77,4 +79,17 @@ test("a different model than the requested full name is flagged", () => {
   assert.deepEqual(claudeModelMismatch("opus", init("claude-opus-5")), []);
   assert.deepEqual(claudeModelMismatch("", init("claude-opus-5")), []);
   assert.deepEqual(claudeModelMismatch("claude-opus-5-5", line({ type: "result", subtype: "success" })), []);
+});
+
+test("icons are one column in every terminal and text is made measurable", () => {
+  for (const icon of Object.values(ICONS)) {
+    assert.equal(stringWidth(icon), 1, icon);
+    assert.ok(!/\p{Extended_Pictographic}/u.test(icon), `${icon} may render as a two-column emoji`);
+  }
+  assert.equal(displayText("1\t---"), "1  ---");
+  assert.equal(displayText("\u001b[31mred\u001b[0m\r\nnext\u0007"), "red next ");
+  assert.equal(displayText("⏺ ok"), "⏺️ ok");
+  assert.equal(stringWidth(displayText("⏺ ok")), 5);
+  assert.equal(displayText("✅ already emoji"), "✅ already emoji");
+  assert.equal(displayText("⏺️ kept"), "⏺️ kept");
 });
