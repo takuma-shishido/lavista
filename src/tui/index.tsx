@@ -6,8 +6,13 @@ import { Feed, initialView } from "./view.js";
 
 /** Full-screen view of both agents. The alternate screen is restored on exit, so a summary is printed then. */
 export function tuiReporter(store: RunStore, onStop: () => void): Reporter {
-  const { claude_model, astra_model } = store.load();
-  const feed = new Feed(initialView(store.id, store.directory, { claude: claude_model, astra: astra_model }));
+  const state = store.load();
+  const describe = (model: string, effort: string) =>
+    [model || "CLI default model", effort && `effort ${effort}`].filter(Boolean).join(" · ");
+  const feed = new Feed(initialView(store.id, store.directory, {
+    claude: describe(state.claude_model, state.claude_effort),
+    astra: describe(state.astra_model, state.astra_effort),
+  }));
   const stop = () => {
     feed.update((view) => ({ ...view, status: "stopping" }));
     onStop();

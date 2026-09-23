@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { errorActivity, parseClaudeLine, parseCodexLine } from "./activity.js";
+import { claudeModelMismatch, errorActivity, parseClaudeLine, parseCodexLine } from "./activity.js";
 import type { Activity } from "./activity.js";
 import type { AgentName, Emit } from "./events.js";
 import { parseReview, reviewJsonSchema } from "./model.js";
@@ -37,7 +37,9 @@ function claudeArgs(state: RunningState): string[] {
     "-p", "--verbose", "--output-format", "stream-json",
     "--session-id", state.session_id,
     "--permission-mode", "acceptEdits",
+    // Per-invocation flags only; Claude's own settings files are never modified.
     ...(state.claude_model ? ["--model", state.claude_model] : []),
+    ...(state.claude_effort ? ["--effort", state.claude_effort] : []),
     ...(state.allowed_tools ? ["--allowedTools", state.allowed_tools] : []),
   ];
 }
@@ -46,6 +48,8 @@ function astraArgs(state: RunState, schemaPath: string, outputPath: string): str
   return [
     "exec",
     ...(state.astra_model ? ["--model", state.astra_model] : []),
+    // A per-invocation config override; ~/.codex/config.toml is left untouched.
+    ...(state.astra_effort ? ["-c", `model_reasoning_effort=${JSON.stringify(state.astra_effort)}`] : []),
     "--sandbox", "read-only", "--skip-git-repo-check", "--json",
     "--output-schema", schemaPath, "--output-last-message", outputPath,
     "-",
@@ -127,7 +131,8 @@ export function createAgents(run: ProcessRunner, emit: Emit = () => {}): Agents 
       const step = store.step(state.iteration);
       const prompt = `Original user goal:\n${state.goal}\n\nCurrent task:\n${state.next_prompt}`;
       writeFileSync(step.prompt, prompt);
-      await invoke("claude", parseClaudeLine, {
+      const parse = (line: string) => [...parseClaudeLine(line), ...claudeModelMismatch(state.claude_model, line)];
+      await invoke("claude", parse, {
         command: "claude", args: claudeArgs(state), input: prompt, cwd: state.project,
         stdoutPath: step.claudeEvents, stderrPath: step.claudeStderr,
         timeoutSeconds: state.timeout, signal,

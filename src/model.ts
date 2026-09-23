@@ -7,10 +7,16 @@ export const count = z.int().positive();
 export const timeoutSeconds = count.max(MAX_TIMEOUT_SECONDS);
 
 // Keep persisted field names compatible with the original Python runs.
+/** Levels accepted by `claude --effort`. */
+export const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+
 /** Chosen once at start and fixed for the run. An empty string means the CLI's own default. */
 export const modelSettings = z.object({
   claude_model: z.string(),
+  claude_effort: z.enum(["", ...CLAUDE_EFFORTS]),
   astra_model: z.string(),
+  // Codex's levels differ per model, so any value its catalog offers is accepted.
+  astra_effort: z.string(),
 });
 
 /** Re-read from config on every start and resume. */
@@ -29,6 +35,9 @@ export type LimitSettings = z.infer<typeof limitSettings>;
 export type RunSettings = z.infer<typeof runSettings>;
 
 const runConfig = runSettings.extend({
+  // Runs saved before effort could be chosen used the CLI defaults.
+  claude_effort: modelSettings.shape.claude_effort.default(""),
+  astra_effort: modelSettings.shape.astra_effort.default(""),
   goal: z.string(),
   project: z.string(),
   iteration: count,

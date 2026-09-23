@@ -8,7 +8,7 @@ const MAX_LINES = 500;
 export interface View {
   runId: string;
   runDirectory: string;
-  /** Model per agent; empty when the CLI's default is used. */
+  /** Model (and effort) per agent, as shown in the pane title. */
   models: Record<AgentName, string>;
   iteration: number;
   maxIterations: number;

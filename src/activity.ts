@@ -134,6 +134,17 @@ function withResetTime(message: string): string {
   return `${match[1]} (resets ${new Date(Number(match[2]) * 1000).toLocaleString()})`;
 }
 
+/**
+ * Warn when Claude starts a different model than the full name requested, e.g. an older one.
+ * Aliases such as `opus` are resolved by the CLI and cannot be compared.
+ */
+export function claudeModelMismatch(requested: string, line: string): Activity[] {
+  const event = parseLine(claudeEvent, line);
+  if (event?.type !== "system" || event.subtype !== "init" || !event.model) return [];
+  if (!requested.startsWith("claude-") || event.model.startsWith(requested)) return [];
+  return [{ kind: "error", text: `requested ${requested}, but Claude started ${event.model}` }];
+}
+
 // ---- Codex `exec --json` ----
 
 const codexItem = z.discriminatedUnion("type", [

@@ -6,8 +6,10 @@ import type { LimitSettings, RunSettings } from "./model.js";
 import { readJson, RunStore } from "./store.js";
 
 export const DEFAULT_SETTINGS: RunSettings = {
-  astra_model: "gpt-6-astra",
   claude_model: "",
+  claude_effort: "",
+  astra_model: "gpt-6-astra",
+  astra_effort: "",
   allowed_tools: "",
   max_iterations: 5,
   timeout: 1800,

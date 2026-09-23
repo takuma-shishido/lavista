@@ -15,7 +15,7 @@ function fixture(t: { after: (fn: () => void) => void }): RunStore {
   const store = new RunStore(directory);
   const state: RunState = {
     goal: "Create result.txt", project: directory, stage: "claude", iteration: 1,
-    next_prompt: "Create result.txt", astra_model: "gpt-6-astra", claude_model: "",
+    next_prompt: "Create result.txt", astra_model: "gpt-6-astra", claude_model: "", claude_effort: "", astra_effort: "",
     allowed_tools: "", max_iterations: 3, timeout: 10, max_history_bytes: 100000,
   };
   store.save(state);
@@ -102,9 +102,9 @@ test("an Astra usage limit found only in stderr keeps the review resumable", asy
   assert.equal(store.load().stage, "review");
 });
 
-test("model flags are passed only when a model was chosen", async (t) => {
+test("model and effort flags are passed only when chosen", async (t) => {
   const store = fixture(t);
-  store.save({ ...store.load(), claude_model: "opus", astra_model: "" });
+  store.save({ ...store.load(), claude_model: "claude-opus-5-5", claude_effort: "high", astra_model: "", astra_effort: "xhigh" });
   const argsBy: Record<string, string[]> = {};
   const runner: ProcessRunner = async ({ command, args, stdoutPath }) => {
     argsBy[command] = args;
@@ -112,6 +112,15 @@ test("model flags are passed only when a model was chosen", async (t) => {
     else writeFileSync(args[args.indexOf("--output-last-message") + 1]!, JSON.stringify({ decision: "done", reason: "ok", next_prompt: "" }));
   };
   await runLoop(store, createAgents(runner), signal(), quiet);
-  assert.deepEqual(argsBy.claude?.slice(argsBy.claude.indexOf("--model"), argsBy.claude.indexOf("--model") + 2), ["--model", "opus"]);
+  const after = (args: string[] | undefined, flag: string) => args?.[args.indexOf(flag) + 1];
+  assert.equal(after(argsBy.claude, "--model"), "claude-opus-5-5");
+  assert.equal(after(argsBy.claude, "--effort"), "high");
   assert.ok(!argsBy.codex?.includes("--model"));
+  assert.equal(after(argsBy.codex, "-c"), 'model_reasoning_effort="xhigh"');
+
+  // Nothing chosen: nothing passed, so each CLI keeps its own settings.
+  store.save({ ...store.load(), stage: "claude", claude_model: "", claude_effort: "", astra_model: "", astra_effort: "" });
+  await runLoop(store, createAgents(runner), signal(), quiet);
+  assert.ok(!argsBy.claude?.includes("--model") && !argsBy.claude?.includes("--effort"));
+  assert.ok(!argsBy.codex?.includes("--model") && !argsBy.codex?.includes("-c"));
 });

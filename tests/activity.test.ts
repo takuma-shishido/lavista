@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseClaudeLine, parseCodexLine, summarize } from "../src/activity.js";
+import { claudeModelMismatch, parseClaudeLine, parseCodexLine, summarize } from "../src/activity.js";
 
 const line = (value: unknown) => JSON.stringify(value);
 
@@ -66,4 +66,15 @@ test("usage limits are recognised only on error channels", () => {
   assert.equal(parseCodexLine(line({ type: "error", message: "Reconnecting... 1/5 (429 Too Many Requests)" }))[0]?.kind, "error");
   assert.equal(parseClaudeLine(line({ type: "assistant", message: { content: [{ type: "text", text: "I'll add rate limit handling." }] } }))[0]?.kind, "text");
   assert.equal(parseClaudeLine(line({ type: "user", message: { content: [{ type: "tool_result", content: "429 Too Many Requests", is_error: true }] } }))[0]?.kind, "error");
+});
+
+test("a different model than the requested full name is flagged", () => {
+  const init = (model: string) => line({ type: "system", subtype: "init", model });
+  assert.deepEqual(claudeModelMismatch("claude-opus-5-5", init("claude-opus-5")),
+    [{ kind: "error", text: "requested claude-opus-5-5, but Claude started claude-opus-5" }]);
+  assert.deepEqual(claudeModelMismatch("claude-opus-5-5", init("claude-opus-5-5")), []);
+  assert.deepEqual(claudeModelMismatch("claude-haiku-4-5", init("claude-haiku-4-5-20251001")), []);
+  assert.deepEqual(claudeModelMismatch("opus", init("claude-opus-5")), []);
+  assert.deepEqual(claudeModelMismatch("", init("claude-opus-5")), []);
+  assert.deepEqual(claudeModelMismatch("claude-opus-5-5", line({ type: "result", subtype: "success" })), []);
 });

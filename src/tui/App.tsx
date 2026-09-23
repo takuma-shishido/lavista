@@ -65,7 +65,7 @@ function Pane({ agent, model, lines, active, width, height }: PaneProps) {
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={active ? color : "gray"}
       width={width} height={height} paddingX={1} overflow="hidden">
-      <Text wrap="truncate-end"><Text bold color={color}>{title}</Text><Text dimColor>  {model || "CLI default model"}</Text></Text>
+      <Text wrap="truncate-end"><Text bold color={color}>{title}</Text><Text dimColor>  {model}</Text></Text>
       {lines.slice(first).map((activity, index) => (
         <Text key={first + index} wrap="truncate-end" {...colorOf(activity)}
           dimColor={activity.kind === "thinking"} italic={activity.kind === "thinking"}>

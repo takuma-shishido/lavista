@@ -7,7 +7,7 @@ import { Feed, initialView, reduce } from "../src/tui/view.js";
 const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
 
 test("view tracks the active agent, per-agent activity and decisions", () => {
-  let view = initialView("run-1", "/runs/run-1", { claude: "opus", astra: "" });
+  let view = initialView("run-1", "/runs/run-1", { claude: "opus", astra: "CLI default model" });
   view = reduce(view, { type: "step", agent: "claude", iteration: 1, maxIterations: 5 }, 1000);
   view = reduce(view, { type: "activity", agent: "claude", activity: { kind: "tool", text: "Bash npm test" } }, 1100);
   assert.deepEqual(view.active, { agent: "claude", since: 1000 });
@@ -20,7 +20,7 @@ test("view tracks the active agent, per-agent activity and decisions", () => {
 });
 
 test("TUI shows both agents' activity side by side and stops on q", async () => {
-  const feed = new Feed(initialView("run-1", "/runs/run-1", { claude: "opus", astra: "" }));
+  const feed = new Feed(initialView("run-1", "/runs/run-1", { claude: "opus", astra: "CLI default model" }));
   let stops = 0;
   const app = render(<App feed={feed} onStop={() => stops++} />);
   try {

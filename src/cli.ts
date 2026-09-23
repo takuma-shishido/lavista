@@ -1,11 +1,12 @@
 #!/usr/bin/env node
-import { Command, CommanderError } from "@commander-js/extra-typings";
+import { Command, CommanderError, Option } from "@commander-js/extra-typings";
 import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createAgents, UsageLimitError, verifyClaudeResult } from "./agents.js";
 import { consoleReporter } from "./events.js";
 import type { Reporter } from "./events.js";
 import { runLoop } from "./loop.js";
+import { CLAUDE_EFFORTS } from "./model.js";
 import type { RunState } from "./model.js";
 import { chooseModels, interactivePicker } from "./models.js";
 import { InterruptedError, runProcess } from "./process.js";
@@ -63,16 +64,21 @@ function createProgram(signal: AbortSignal, workspace: Workspace) {
   program.command("start")
     .description("Start a new run from a UTF-8 file with the goal and completion criteria")
     .argument("<prompt-file>")
-    .option("--claude-model <model>", "Claude model for the worker (alias such as opus, or a full name)")
-    .option("--astra-model <model>", "Codex model for Astra's reviews")
-    .addHelpText("after", "\nModels not given here or in .lavista/config*.json are picked from a list (CLI defaults when not on a terminal).")
+    .option("--claude-model <model>", "Claude model for the worker, e.g. claude-opus-5-5")
+    .addOption(new Option("--claude-effort <level>", "Claude effort level").choices(CLAUDE_EFFORTS))
+    .option("--astra-model <model>", "Codex model for Astra's reviews, e.g. gpt-6-astra")
+    .option("--astra-effort <level>", "Codex reasoning effort, e.g. high")
+    .addHelpText("after", "\nModels and efforts not given here or in .lavista/config*.json are picked from a list\n"
+      + "(CLI defaults when not on a terminal). They are passed per run as flags; neither CLI's settings are changed.")
     .action(async (promptFile, options) => {
       const goal = nonemptyFile(promptFile);
       const config = workspace.loadConfig();
       const models = await chooseModels({
         claude_model: options.claudeModel ?? config.claude_model,
+        claude_effort: options.claudeEffort ?? config.claude_effort,
         astra_model: options.astraModel ?? config.astra_model,
-      }, isInteractive() ? interactivePicker : undefined);
+        astra_effort: options.astraEffort ?? config.astra_effort,
+      }, isInteractive() ? interactivePicker() : undefined);
       const store = workspace.newRun();
       store.create({
         ...models, ...workspace.loadLimits(),

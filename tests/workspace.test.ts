@@ -14,7 +14,7 @@ function workspace(t: { after: (fn: () => void) => void }): Workspace {
 test("config layers merge, and limits fall back to defaults", (t) => {
   const ws = workspace(t);
   assert.deepEqual(ws.loadConfig(), {});
-  const { claude_model: _claude, astra_model: _astra, ...limits } = DEFAULT_SETTINGS;
+  const { claude_model: _cm, claude_effort: _ce, astra_model: _am, astra_effort: _ae, ...limits } = DEFAULT_SETTINGS;
   assert.deepEqual(ws.loadLimits(), limits);
   const [shared, local] = ws.configFiles as [string, string];
   mkdirSync(ws.directory);
