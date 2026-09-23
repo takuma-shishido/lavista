@@ -66,7 +66,7 @@ function history(state: RunState, store: RunStore) {
 function reviewPrompt(state: RunState, store: RunStore): string {
   const evidence = JSON.stringify({ original_goal: state.goal, history: history(state, store) });
   if (Buffer.byteLength(evidence) > state.max_history_bytes) {
-    throw new Error("History exceeds byte limit. Nothing was truncated; raise --max-history-bytes to retry review.");
+    throw new Error("History exceeds byte limit. Nothing was truncated; raise max_history_bytes in .lavista/config.local.json and run `lavista resume`.");
   }
   return `${REVIEW_INSTRUCTIONS}\n\n${evidence}`;
 }

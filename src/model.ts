@@ -7,15 +7,21 @@ export const count = z.int().positive();
 export const timeoutSeconds = count.max(MAX_TIMEOUT_SECONDS);
 
 // Keep persisted field names compatible with the original Python runs.
-const runConfig = z.object({
-  goal: z.string(),
-  project: z.string(),
+/** User-tunable settings; also the shape of `.lavista/config*.json`. */
+export const runSettings = z.object({
   astra_model: z.string(),
   claude_model: z.string(),
   allowed_tools: z.string(),
   max_iterations: count,
   timeout: timeoutSeconds,
   max_history_bytes: count,
+});
+
+export type RunSettings = z.infer<typeof runSettings>;
+
+const runConfig = runSettings.extend({
+  goal: z.string(),
+  project: z.string(),
   iteration: count,
   next_prompt: z.string(),
 });
@@ -48,7 +54,7 @@ export const reviewJsonSchema = (() => {
   return schema;
 })();
 
-function parse<T>(schema: z.ZodType<T>, value: unknown, label: string): T {
+export function parse<T>(schema: z.ZodType<T>, value: unknown, label: string): T {
   const result = schema.safeParse(value);
   if (!result.success) throw new Error(`Invalid ${label}:\n${z.prettifyError(result.error)}`);
   return result.data;

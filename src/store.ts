@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import writeFileAtomic from "write-file-atomic";
 import { parseState } from "./model.js";
 import type { RunState } from "./model.js";
@@ -36,6 +36,10 @@ export class RunStore {
 
   constructor(directory: string) {
     this.directory = resolve(directory);
+  }
+
+  get id(): string {
+    return basename(this.directory);
   }
 
   get reviewSchema(): string {

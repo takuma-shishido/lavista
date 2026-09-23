@@ -18,10 +18,10 @@ export async function runLoop(
         report(`${state.stage}: ${state.reason}`);
         return;
       case "claude_running":
-        throw new Error("Previous Claude execution was interrupted or failed. Inspect logs, then resume with --retry-worker or --review-worker.");
+        throw new Error("Previous Claude execution was interrupted or failed. Inspect logs, then run `lavista retry` or `lavista review`.");
       case "claude": {
         if (state.iteration > state.max_iterations) {
-          report("Maximum iterations reached. Increase --max-iterations with resume to continue.");
+          report("Maximum iterations reached. Raise max_iterations in .lavista/config.local.json, then run `lavista resume`.");
           return;
         }
         store.createStep(state.iteration);

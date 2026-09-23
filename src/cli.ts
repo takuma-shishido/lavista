@@ -1,30 +1,13 @@
 #!/usr/bin/env node
-import { Command, CommanderError, InvalidArgumentError, Option } from "@commander-js/extra-typings";
-import { readFileSync, realpathSync, statSync } from "node:fs";
-import { resolve } from "node:path";
+import { Command, CommanderError } from "@commander-js/extra-typings";
+import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { z } from "zod";
 import { createAgents, verifyClaudeResult } from "./agents.js";
 import { runLoop } from "./loop.js";
-import { count, timeoutSeconds } from "./model.js";
 import type { RunState } from "./model.js";
 import { runProcess } from "./process.js";
-import { RunStore } from "./store.js";
-
-function numberArgument(schema: z.ZodType<number>) {
-  return (value: string): number => {
-    const result = schema.safeParse(Number(value));
-    if (!result.success) throw new InvalidArgumentError(z.prettifyError(result.error));
-    return result.data;
-  };
-}
-
-const option = {
-  maxIterations: () => new Option("--max-iterations <count>").argParser(numberArgument(count)),
-  maxHistoryBytes: () => new Option("--max-history-bytes <bytes>", "never silently truncate history")
-    .argParser(numberArgument(count)),
-  allowedTools: () => new Option("--allowed-tools <tools>", "Claude tool permission rules"),
-};
+import type { RunStore } from "./store.js";
+import { Workspace } from "./workspace.js";
 
 function nonemptyFile(path: string): string {
   const content = readFileSync(path, "utf8").trim();
@@ -32,111 +15,89 @@ function nonemptyFile(path: string): string {
   return content;
 }
 
-async function run(store: RunStore, signal: AbortSignal): Promise<void> {
-  await runLoop(store, createAgents(runProcess), signal);
+function expectStage(state: RunState, stage: RunState["stage"], command: string): void {
+  if (state.stage !== stage) throw new Error(`lavista ${command} requires the ${stage} stage, but the run is in ${state.stage}`);
 }
 
-interface ResumeOptions {
-  maxIterations?: number;
-  maxHistoryBytes?: number;
-  allowedTools?: string;
-  retryWorker?: true;
-  reviewWorker?: true;
-  inputFile?: string;
-}
+function createProgram(signal: AbortSignal, workspace: Workspace) {
+  const run = (store: RunStore) => runLoop(store, createAgents(runProcess), signal);
 
-function resumedState(store: RunStore, options: ResumeOptions): RunState {
-  const loaded = store.load();
-  const state: RunState = {
-    ...loaded,
-    max_iterations: options.maxIterations ?? loaded.max_iterations,
-    max_history_bytes: options.maxHistoryBytes ?? loaded.max_history_bytes,
-    allowed_tools: options.allowedTools ?? loaded.allowed_tools,
+  /** Reload settings from config, apply a stage transition, then continue the loop. */
+  const resumeWith = (transition: (state: RunState, store: RunStore) => RunState) => async (id?: string) => {
+    const store = workspace.findRun(id);
+    await store.exclusive(async () => {
+      const state: RunState = { ...store.load(), ...workspace.loadSettings() };
+      store.save(transition(state, store));
+      await run(store);
+    });
   };
-  if (options.retryWorker || options.reviewWorker) {
-    if (state.stage !== "claude_running") throw new Error("Worker recovery requires claude_running state");
-    if (options.reviewWorker) {
-      verifyClaudeResult(store.step(state.iteration).claudeEvents);
-      return { ...state, stage: "review" };
-    }
-    store.archiveStep(state.iteration);
-    return { ...state, stage: "claude" };
-  }
-  if (options.inputFile !== undefined) {
-    if (state.stage !== "needs_input") throw new Error("--input-file requires needs_input state");
-    const answer = nonemptyFile(options.inputFile);
-    return { ...state, stage: "review", goal: `${state.goal}\n\nUser clarification:\n${answer}` };
-  }
-  return state;
-}
 
-function createProgram(signal: AbortSignal) {
   const program = new Command("lavista")
-    .description("Claude executes. Astra reviews. A fresh session takes the next step.")
+    .description("Claude executes. Astra reviews. A fresh session takes the next step.\n"
+      + "Runs in the current directory. Settings: .lavista/config.json, .lavista/config.local.json")
     .exitOverride()
     .hook("preAction", () => {
       if (process.platform === "win32") throw new Error("lavista currently supports macOS and Linux.");
     });
 
   program.command("start")
-    .description("Start a new run")
-    .requiredOption("--project <directory>")
-    .requiredOption("--prompt-file <file>", "UTF-8 file with the initial instructions")
-    .requiredOption("--run-dir <new-directory>")
-    .option("--astra-model <model>", "Codex model used by Astra", "gpt-6-astra")
-    .option("--claude-model <model>", "default: Claude CLI's configured model")
-    .option("--timeout <seconds>", "per CLI invocation", numberArgument(timeoutSeconds), 1800)
-    .addOption(option.maxIterations().default(5))
-    .addOption(option.maxHistoryBytes().default(1_000_000))
-    .addOption(option.allowedTools())
-    .action(async (options) => {
-      const project = resolve(options.project);
-      if (!statSync(project).isDirectory()) throw new Error("Project must be a directory");
-      const goal = nonemptyFile(options.promptFile);
-      const store = new RunStore(options.runDir);
+    .description("Start a new run from a UTF-8 file with the goal and completion criteria")
+    .argument("<prompt-file>")
+    .action(async (promptFile) => {
+      const goal = nonemptyFile(promptFile);
+      const store = workspace.newRun();
       store.create({
-        goal, project, stage: "claude", iteration: 1, next_prompt: goal,
-        astra_model: options.astraModel,
-        claude_model: options.claudeModel ?? "",
-        allowed_tools: options.allowedTools ?? "",
-        max_iterations: options.maxIterations,
-        max_history_bytes: options.maxHistoryBytes,
-        timeout: options.timeout,
+        ...workspace.loadSettings(),
+        goal, project: workspace.project, stage: "claude", iteration: 1, next_prompt: goal,
       });
-      await store.exclusive(() => run(store, signal));
+      console.log(`run: ${store.id}`);
+      await store.exclusive(() => run(store));
     });
 
   program.command("resume")
-    .description("Resume a stopped run")
-    .argument("<run-directory>")
-    .addOption(option.maxIterations())
-    .addOption(option.maxHistoryBytes())
-    .addOption(option.allowedTools())
-    .addOption(new Option("--retry-worker", "explicitly retry an interrupted worker in a fresh session")
-      .conflicts(["reviewWorker", "inputFile"]))
-    .addOption(new Option("--review-worker", "review a saved successful worker result")
-      .conflicts("inputFile"))
-    .option("--input-file <file>", "answer a needs_input decision")
-    .action(async (directory, options) => {
-      const store = new RunStore(directory);
-      await store.exclusive(async () => {
-        store.save(resumedState(store, options));
-        await run(store, signal);
-      });
-    });
+    .description("Continue a stopped run (default: latest) with the current config")
+    .argument("[run]")
+    .action(resumeWith((state) => state));
+
+  program.command("retry")
+    .description("Retry an interrupted or failed Claude step in a fresh session")
+    .argument("[run]")
+    .action(resumeWith((state, store) => {
+      expectStage(state, "claude_running", "retry");
+      store.archiveStep(state.iteration);
+      return { ...state, stage: "claude" };
+    }));
+
+  program.command("review")
+    .description("Send a saved successful Claude result to Astra")
+    .argument("[run]")
+    .action(resumeWith((state, store) => {
+      expectStage(state, "claude_running", "review");
+      verifyClaudeResult(store.step(state.iteration).claudeEvents);
+      return { ...state, stage: "review" };
+    }));
+
+  program.command("answer")
+    .description("Answer a needs_input decision and let Astra decide again")
+    .argument("<file>")
+    .argument("[run]")
+    .action((file, id) => resumeWith((state) => {
+      expectStage(state, "needs_input", "answer");
+      return { ...state, stage: "review", goal: `${state.goal}\n\nUser clarification:\n${nonemptyFile(file)}` };
+    })(id));
 
   program.command("status")
-    .description("Print the saved run state")
-    .argument("<run-directory>")
-    .action((directory) => {
-      console.log(JSON.stringify(new RunStore(directory).load(), null, 2));
+    .description("Print the saved run state (default: latest run)")
+    .argument("[run]")
+    .action((id) => {
+      console.log(JSON.stringify(workspace.findRun(id).load(), null, 2));
     });
 
   return program;
 }
 
-export async function main(args: string[], signal: AbortSignal): Promise<void> {
-  await createProgram(signal).parseAsync(args, { from: "user" });
+export async function main(args: string[], signal: AbortSignal, workspace = new Workspace(process.cwd())): Promise<void> {
+  await createProgram(signal, workspace).parseAsync(args, { from: "user" });
 }
 
 // Keep importable main free of signal handlers for tests and embedding.
