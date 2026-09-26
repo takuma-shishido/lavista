@@ -29,6 +29,29 @@ export interface PermissionRequest {
   rules: string[];
 }
 
+/**
+ * Text the user sends to the Claude session that is working right now. A Claude step opens the
+ * inbox while it runs; outside a step there is nobody to receive the text.
+ */
+export class Inbox {
+  private receiver: ((text: string) => void) | undefined;
+
+  /** False when no Claude session is working to receive the text. */
+  readonly send = (text: string): boolean => {
+    if (!this.receiver) return false;
+    this.receiver(text);
+    return true;
+  };
+
+  /** Deliver sent text to `receiver` until the returned function closes the inbox again. */
+  open(receiver: (text: string) => void): () => void {
+    this.receiver = receiver;
+    return () => {
+      if (this.receiver === receiver) this.receiver = undefined;
+    };
+  }
+}
+
 /** `once`: this call only. `run`: also every matching call for the rest of the run. */
 export type PermissionAnswer = "once" | "run" | "deny";
 
@@ -44,7 +67,7 @@ export interface Reporter {
 
 // One column in every terminal: no emoji-capable symbols (e.g. ⏺ or ‼, which many terminals draw two wide).
 export const ICONS: Record<Activity["kind"], string> = {
-  info: "·", text: "●", thinking: "∴", tool: "▸", output: "⎿", error: "✗", limit: "⊘",
+  info: "·", text: "●", thinking: "∴", tool: "▸", output: "⎿", error: "✗", limit: "⊘", user: "›",
 };
 
 /**

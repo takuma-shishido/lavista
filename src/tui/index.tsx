@@ -15,8 +15,9 @@ interface Question {
  * Full-screen view of both agents. The alternate screen is restored on exit, so a summary is printed then.
  * The first stop key asks the agents to stop; the next one forces it.
  * Permission requests are shown one at a time, oldest first, until answered.
+ * Text the user writes goes to Claude through `send`, which is false when no Claude step is running.
  */
-export function tuiReporter(store: RunStore, onStop: () => void, onForce: () => void): Reporter {
+export function tuiReporter(store: RunStore, onStop: () => void, onForce: () => void, send: (text: string) => boolean): Reporter {
   const state = store.load();
   const describe = (model: string, effort: string) =>
     [model || "CLI default model", effort && `effort ${effort}`].filter(Boolean).join(" · ");
@@ -30,12 +31,16 @@ export function tuiReporter(store: RunStore, onStop: () => void, onForce: () => 
     return next ? { ...view, question: next.request } : view;
   });
   const answer = (value: PermissionAnswer) => questions[0]?.answer(value);
+  // A delivered message shows up in Claude's pane once it is logged with Claude's events.
+  const message = (text: string) => {
+    if (!send(text)) feed.update((view) => ({ ...view, notice: "Not sent: Claude is not working on a step right now." }));
+  };
   const stop = () => {
     if (feed.getSnapshot().status !== "running") return onForce();
     feed.update((view) => ({ ...view, status: "stopping" }));
     onStop();
   };
-  const instance = render(<App feed={feed} onStop={stop} onAnswer={answer} />, { alternateScreen: true, exitOnCtrlC: false });
+  const instance = render(<App feed={feed} onStop={stop} onAnswer={answer} onSend={message} />, { alternateScreen: true, exitOnCtrlC: false });
 
   return {
     emit: (event) => feed.dispatch(event),

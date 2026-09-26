@@ -82,7 +82,7 @@ lavista start
 
 1. Pick the models and efforts from a list (skipped for those set in the config or as flags).
 2. Your editor opens (`$VISUAL`, then `$EDITOR`, then `vi`). Write the goal and its completion criteria, then save and quit to start. Quitting with it empty cancels.
-3. Watch the TUI. <kbd>q</kbd> or <kbd>Ctrl</kbd>+<kbd>C</kbd> stops the run; press it again to kill the agents at once.
+3. Watch the TUI. <kbd>q</kbd> or <kbd>Ctrl</kbd>+<kbd>C</kbd> stops the run; press it again to kill the agents at once. While Claude works, <kbd>m</kbd> opens a line to send it more instructions: <kbd>Enter</kbd> sends them to the running session, <kbd>Esc</kbd> cancels. The step does not end until Claude has answered them, and they are kept in its log for Astra's review.
 
 The goal is saved with the run's logs as `.lavista/runs/<run>/goal.md`. `.lavista/runs/` is git-ignored, so no task file is left in your working tree.
 

@@ -1,5 +1,5 @@
-import { Box, Text, useAnimation, useInput, useWindowSize } from "ink";
-import { useSyncExternalStore } from "react";
+import { Box, Text, useAnimation, useInput, usePaste, useWindowSize } from "ink";
+import { useRef, useState, useSyncExternalStore } from "react";
 import type { Activity } from "../activity.js";
 import { displayText, formatActivity } from "../events.js";
 import type { AgentName, PermissionAnswer, PermissionRequest } from "../events.js";
@@ -11,7 +11,7 @@ const AGENTS: Record<AgentName, { title: string; color: string }> = {
 };
 
 const KIND_COLORS: Partial<Record<Activity["kind"], string>> = {
-  info: "gray", tool: "yellow", output: "gray", error: "red", limit: "redBright",
+  info: "gray", tool: "yellow", output: "gray", error: "red", limit: "redBright", user: "magenta",
 };
 
 function colorOf({ kind }: Activity): { color?: string } {
@@ -120,28 +120,77 @@ function Question({ request }: { request: PermissionRequest }) {
   );
 }
 
+/** Rows the message box takes: border, title, text. */
+const MESSAGE_ROWS = 4;
+
+function Message({ draft }: { draft: string }) {
+  return (
+    <Box flexDirection="column" borderStyle="round" borderColor={AGENTS.claude.color} paddingX={1} height={MESSAGE_ROWS} overflow="hidden">
+      <Text wrap="truncate-end"><Text bold color={AGENTS.claude.color}>Message to Claude</Text><Text dimColor>  Enter: send · Esc: cancel</Text></Text>
+      {/* The end being typed stays in sight; a long message gives way at the start. */}
+      <Text wrap="truncate-start">{displayText(draft)}<Text inverse> </Text></Text>
+    </Box>
+  );
+}
+
+/** Claude is working on a step and can be sent a message. */
+const acceptsMessages = (view: View) => view.status === "running" && view.active?.agent === "claude" && view.active.task === "work";
+
 function Footer({ view }: { view: View }) {
   if (view.status === "stopping") return <Text color="yellow">Stopping… waiting for the agents to exit (q / Ctrl+C again: force)</Text>;
   if (view.notice) return <Text wrap="truncate-end">{displayText(view.notice)}</Text>;
-  return <Text dimColor>q / Ctrl+C: stop (state and logs are kept; continue with `lavista resume`)</Text>;
+  const message = acceptsMessages(view) ? "m: message Claude · " : "";
+  return <Text dimColor wrap="truncate-end">{message}q / Ctrl+C: stop (state and logs are kept; continue with `lavista resume`)</Text>;
 }
 
 const ANSWER_KEYS: Record<string, PermissionAnswer> = { y: "once", a: "run", n: "deny" };
 
-export function App({ feed, onStop, onAnswer }: { feed: Feed; onStop: () => void; onAnswer: (answer: PermissionAnswer) => void }) {
+/** Typed text as it is sent: line breaks kept, other control characters dropped. */
+const typed = (text: string) => text.replace(/\r\n?/g, "\n").replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, "");
+
+export function App({ feed, onStop, onAnswer, onSend }: {
+  feed: Feed;
+  onStop: () => void;
+  onAnswer: (answer: PermissionAnswer) => void;
+  onSend: (text: string) => void;
+}) {
   const view = useSyncExternalStore(feed.subscribe, feed.getSnapshot);
   const { columns, rows } = useWindowSize();
+  // Undefined while no message is being written. Keys are read from the ref, which is current
+  // even when several arrive before the next render.
+  const [draft, setDraft] = useState<string>();
+  const draftRef = useRef<string>(undefined);
+  const edit = (next: string | undefined) => {
+    draftRef.current = next;
+    setDraft(next);
+  };
   // Stays active while stopping: raw mode must remain on, and a second press forces the stop.
   useInput((input, key) => {
-    if (input === "q" || (key.ctrl && input === "c")) return onStop();
+    if (key.ctrl && input === "c") return onStop();
+    const current = draftRef.current;
+    if (current !== undefined) {
+      if (key.escape) return edit(undefined);
+      if (key.return) {
+        edit(undefined);
+        if (current.trim()) onSend(current.trim());
+        return;
+      }
+      if (key.backspace || key.delete) return edit(Array.from(current).slice(0, -1).join(""));
+      if (!key.ctrl && !key.meta) edit(current + typed(input));
+      return;
+    }
+    if (input === "q") return onStop();
+    if (input === "m" && acceptsMessages(view)) return edit("");
     const answer = view.question && ANSWER_KEYS[input];
     // "a" is offered only when there is a rule to remember.
     if (answer && (answer !== "run" || view.question!.rules.length > 0)) onAnswer(answer);
   }, { isActive: view.status !== "stopped" });
+  usePaste((text) => edit((draftRef.current ?? "") + typed(text)), { isActive: draft !== undefined });
 
   const decisionRows = Math.min(view.decisions.length, 3);
   const questionRows = view.question ? QUESTION_ROWS : 0;
-  const bodyRows = Math.max(rows - 2 - decisionRows - questionRows, 8);
+  const messageRows = draft === undefined ? 0 : MESSAGE_ROWS;
+  const bodyRows = Math.max(rows - 2 - decisionRows - questionRows - messageRows, 8);
   const wide = columns >= 100;
   const paneWidth = wide ? Math.floor(columns / 2) : columns;
   const paneHeight = wide ? bodyRows : Math.floor(bodyRows / 2);
@@ -157,6 +206,7 @@ export function App({ feed, onStop, onAnswer }: { feed: Feed; onStop: () => void
       </Box>
       <Decisions view={view} limit={decisionRows} />
       {view.question && <Question request={view.question} />}
+      {draft !== undefined && <Message draft={draft} />}
       <Footer view={view} />
     </Box>
   );

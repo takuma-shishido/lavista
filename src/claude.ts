@@ -1,10 +1,11 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import type { CanUseTool, PermissionUpdate, SDKMessage, SDKUserMessage, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
+import type { CanUseTool, PermissionUpdate, SDKMessage, SDKResultMessage, SDKUserMessage, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
 import { execa } from "execa";
 import type { ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { open } from "node:fs/promises";
 import { describeInput } from "./activity.js";
-import type { AskPermission, PermissionAnswer } from "./events.js";
+import type { AskPermission, Inbox, PermissionAnswer } from "./events.js";
 import type { ClaudeEffort } from "./model.js";
 import { idleError, idleWatchdog, InterruptedError, track, writeTo } from "./process.js";
 
@@ -79,6 +80,62 @@ export class BackgroundWork {
   }
 }
 
+function userMessage(text: string, uuid?: SDKUserMessage["uuid"]): SDKUserMessage {
+  return { type: "user", message: { role: "user", content: text }, parent_tool_use_id: null, ...(uuid ? { uuid } : {}) };
+}
+
+/**
+ * Claude's input for one step: the prompt, then whatever the user sends while Claude works. It stays
+ * open until the step is over, so background work that outlives a turn can wake Claude again (a
+ * one-shot prompt would end the CLI after the first turn). Each sent message carries a uuid, and a
+ * turn's result lists the ones it consumed: until all are, a turn is still to come.
+ */
+export class ClaudeInput {
+  private readonly queued: SDKUserMessage[] = [];
+  private readonly unanswered = new Set<string>();
+  private wake = () => {};
+  private closed = false;
+
+  constructor(private readonly prompt: string) {}
+
+  send(text: string): void {
+    const uuid = randomUUID();
+    this.unanswered.add(uuid);
+    this.queued.push(userMessage(text, uuid));
+    this.wake();
+  }
+
+  /** Mark the messages a turn consumed. A CLI that does not report them is taken to have consumed all. */
+  observe(result: SDKResultMessage): void {
+    const consumed = result.user_message_uuids ?? (result.user_message_uuid ? [result.user_message_uuid] : undefined);
+    if (consumed === undefined) this.unanswered.clear();
+    for (const uuid of consumed ?? []) this.unanswered.delete(uuid);
+  }
+
+  /** A message the user sent has not been answered by a turn yet. */
+  get waiting(): boolean {
+    return this.unanswered.size > 0;
+  }
+
+  close(): void {
+    this.closed = true;
+    this.wake();
+  }
+
+  async *messages(): AsyncGenerator<SDKUserMessage> {
+    yield userMessage(this.prompt);
+    for (;;) {
+      const next = this.queued.shift();
+      if (next) {
+        yield next;
+        continue;
+      }
+      if (this.closed) return;
+      await new Promise<void>((resolve) => { this.wake = resolve; });
+    }
+  }
+}
+
 /** Once the awaited work is gone, how long to wait for the turn it should start before ending the step. */
 export const WAKE_GRACE_MS = 120_000;
 
@@ -86,10 +143,9 @@ export const WAKE_GRACE_MS = 120_000;
  * Run Claude Code through the Agent SDK so its permission prompts reach the user through `ask`
  * rather than being denied: a `-p` run has nobody to ask. Claude still runs as the `claude` CLI on
  * PATH, in auto mode, and its events are logged in the same stream-json form as `claude -p`.
- * The prompt is streamed and input stays open until the step is over, so background work that
- * outlives a turn can wake Claude again (a one-shot prompt would end the CLI after the first turn).
+ * While a step runs, text sent through `inbox` reaches Claude as further user messages.
  */
-export function sdkClaude(ask: AskPermission): ClaudeRunner {
+export function sdkClaude(ask: AskPermission, inbox?: Inbox): ClaudeRunner {
   return async (invocation) => {
     const { prompt, cwd, sessionId, model, effort, allowedTools, eventsPath, stderrPath, timeoutSeconds, signal, onLine, onApprove } = invocation;
     signal.throwIfAborted();
@@ -108,12 +164,16 @@ export function sdkClaude(ask: AskPermission): ClaudeRunner {
     let grace: NodeJS.Timeout | undefined;
     // Set when the awaited work ended without starting another turn: the step is over, not stopped.
     let overWithoutWake = false;
-    let closeInput = () => {};
-    const inputClosed = new Promise<void>((resolve) => { closeInput = resolve; });
-    async function* input(): AsyncGenerator<SDKUserMessage> {
-      yield { type: "user", message: { role: "user", content: prompt }, parent_tool_use_id: null };
-      await inputClosed;
-    }
+    const input = new ClaudeInput(prompt);
+    const closeInbox = inbox?.open((text) => {
+      // Recorded with Claude's events, so the TUI shows it and a reviewer sees what the user asked for.
+      log({ type: "lavista_user_message", text });
+      input.send(text);
+      // The message starts a turn of its own, even while Claude waits for background work.
+      dormant = false;
+      clearTimeout(grace);
+      grace = undefined;
+    }) ?? (() => {});
     const idle = idleWatchdog([eventsPath, stderrPath], timeoutSeconds, () => asking > 0 || dormant);
     const abort = new AbortController();
     const stop = () => abort.abort();
@@ -144,7 +204,7 @@ export function sdkClaude(ask: AskPermission): ClaudeRunner {
     };
     try {
       const messages = query({
-        prompt: input(),
+        prompt: input.messages(),
         options: {
           cwd,
           sessionId,
@@ -175,9 +235,16 @@ export function sdkClaude(ask: AskPermission): ClaudeRunner {
           clearTimeout(grace);
           grace = undefined;
         } else if (message.type === "result") {
+          input.observe(message);
           const pending = background.pending;
           // Done: don't wait for output to end, which a daemonized descendant could hold open forever.
-          if (message.is_error || pending.length === 0) break;
+          // The inbox closes first, so no text can be sent to a session that will not read it.
+          if (message.is_error || (pending.length === 0 && !input.waiting)) {
+            closeInbox();
+            break;
+          }
+          // A message the user sent starts the next turn at once; only background work leaves Claude dormant.
+          if (pending.length === 0) continue;
           dormant = true;
           log({ type: "lavista_waiting", tasks: pending });
         } else if (dormant && grace === undefined && background.pending.length === 0) {
@@ -191,8 +258,9 @@ export function sdkClaude(ask: AskPermission): ClaudeRunner {
       if (overWithoutWake && !stopped()) return;
       throw stopped() ?? new Error(`${error instanceof Error ? error.message : String(error)}\nSee ${stderrPath}`);
     } finally {
+      closeInbox();
       clearTimeout(grace);
-      closeInput();
+      input.close();
       stops.removeEventListener("abort", stop);
       idle.stop();
       await writing;

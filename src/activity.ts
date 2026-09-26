@@ -3,8 +3,11 @@ import { z } from "zod";
 
 /** One human-readable thing an agent did, derived from a line of its JSON event stream. */
 export interface Activity {
-  /** `limit`: the agent cannot continue until a usage/rate limit or billing problem is resolved. */
-  kind: "info" | "text" | "thinking" | "tool" | "output" | "error" | "limit";
+  /**
+   * `limit`: the agent cannot continue until a usage/rate limit or billing problem is resolved.
+   * `user`: text the user sent to the agent while it worked.
+   */
+  kind: "info" | "text" | "thinking" | "tool" | "output" | "error" | "limit" | "user";
   text: string;
 }
 
@@ -80,6 +83,8 @@ const claudeEvent = z.discriminatedUnion("type", [
   }),
   // Written by lavista: the turn ended while Claude's background work still runs.
   z.object({ type: z.literal("lavista_waiting"), tasks: z.array(z.string()) }),
+  // Written by lavista: text the user sent to Claude while it worked.
+  z.object({ type: z.literal("lavista_user_message"), text: z.string() }),
   z.object({
     type: z.literal("result"),
     subtype: z.string(),
@@ -125,6 +130,8 @@ export function parseClaudeLine(line: string): Activity[] {
     }
     case "lavista_waiting":
       return [{ kind: "info", text: summarize(`waiting for background work: ${event.tasks.join(", ")}`) }];
+    case "lavista_user_message":
+      return [{ kind: "user", text: summarize(event.text) }];
     case "result": {
       if (event.is_error) return [errorActivity(withResetTime(event.result ?? event.subtype))];
       const details = [

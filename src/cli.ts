@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { concurrentRun, createAgents, UsageLimitError, verifyClaudeResult } from "./agents.js";
 import { sdkClaude } from "./claude.js";
 import { editText } from "./editor.js";
-import { consoleReporter } from "./events.js";
+import { consoleReporter, Inbox } from "./events.js";
 import type { Reporter } from "./events.js";
 import { runLoop } from "./loop.js";
 import { CLAUDE_EFFORTS } from "./model.js";
@@ -50,12 +50,13 @@ function createProgram(signal: AbortSignal, workspace: Workspace) {
   // The TUI reads keys in raw mode, where Ctrl+C is a key press rather than SIGINT.
   const stop = new AbortController();
   const cancel = AbortSignal.any([signal, stop.signal]);
-  const reporter = (store: RunStore): Reporter => isInteractive()
-    ? tuiReporter(store, () => stop.abort(new InterruptedError()), forceKillAll)
+  const reporter = (store: RunStore, inbox: Inbox): Reporter => isInteractive()
+    ? tuiReporter(store, () => stop.abort(new InterruptedError()), forceKillAll, inbox.send)
     : consoleReporter();
 
   const run = async (store: RunStore) => {
-    const { emit, ask, close } = reporter(store);
+    const inbox = new Inbox();
+    const { emit, ask, close } = reporter(store, inbox);
     try {
       const concurrent = () => workspace.activeRuns(store).flatMap((other) => {
         try {
@@ -64,7 +65,7 @@ function createProgram(signal: AbortSignal, workspace: Workspace) {
           return []; // Its state is being written or was never saved.
         }
       });
-      await runLoop(store, createAgents({ process: runProcess, claude: sdkClaude(ask) }, emit, concurrent), cancel, emit);
+      await runLoop(store, createAgents({ process: runProcess, claude: sdkClaude(ask, inbox) }, emit, concurrent), cancel, emit);
     } finally {
       await close();
     }

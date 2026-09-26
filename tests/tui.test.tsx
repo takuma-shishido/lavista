@@ -30,7 +30,7 @@ test("view tracks the active agent, per-agent activity and decisions", () => {
 test("TUI shows both agents' activity side by side and stops on q", async () => {
   const feed = new Feed(initialView("run-1", "/runs/run-1", { claude: "opus", astra: "CLI default model" }));
   let stops = 0;
-  const app = render(<App feed={feed} onStop={() => stops++} onAnswer={() => {}} />);
+  const app = render(<App feed={feed} onStop={() => stops++} onAnswer={() => {}} onSend={() => {}} />);
   try {
     feed.dispatch({ type: "plan", plan: [
       { title: "Investigate", done_when: "findings recorded", status: "done" },
@@ -63,7 +63,7 @@ test("TUI shows both agents' activity side by side and stops on q", async () => 
 
 test("every row keeps the frame width whatever the agents print", async () => {
   const feed = new Feed(initialView("run-1", "/runs/run-1", { claude: "claude-opus-5-5", astra: "gpt-6-astra" }));
-  const app = render(<App feed={feed} onStop={() => {}} onAnswer={() => {}} />);
+  const app = render(<App feed={feed} onStop={() => {}} onAnswer={() => {}} onSend={() => {}} />);
   try {
     const awkward = [
       "1\t---\tfront matter",                         // tabs from Read output
@@ -91,7 +91,7 @@ test("every row keeps the frame width whatever the agents print", async () => {
 
 test("the header stays one row, cutting a long stage title rather than wrapping", async () => {
   const feed = new Feed(initialView("2026-09-26T18-19-26Z", "/runs/r", { claude: "claude-sonnet-5", astra: "gpt-6-astra" }));
-  const app = render(<App feed={feed} onStop={() => {}} onAnswer={() => {}} />);
+  const app = render(<App feed={feed} onStop={() => {}} onAnswer={() => {}} onSend={() => {}} />);
   try {
     feed.dispatch({ type: "plan", plan: [
       { title: "Transliterate accented letters and verify slugify against every example the user gave", done_when: "w", status: "pending" },
@@ -112,7 +112,7 @@ test("the header stays one row, cutting a long stage title rather than wrapping"
 test("a permission request is shown until answered with y, a or n", async () => {
   const feed = new Feed(initialView("run-1", "/runs/run-1", { claude: "opus", astra: "gpt-6-astra" }));
   const answers: string[] = [];
-  const app = render(<App feed={feed} onStop={() => {}} onAnswer={(answer) => answers.push(answer)} />);
+  const app = render(<App feed={feed} onStop={() => {}} onAnswer={(answer) => answers.push(answer)} onSend={() => {}} />);
   try {
     const request = { tool: "Bash", detail: "llvm-dwarfdump a.out", reason: "This command requires approval", rules: ["Bash(llvm-dwarfdump *)"] };
     feed.update((view) => ({ ...view, question: request }));
@@ -134,6 +134,46 @@ test("a permission request is shown until answered with y, a or n", async () => 
     app.stdin.write("a");
     await settle();
     assert.deepEqual(answers, ["once", "run", "deny"]);
+  } finally {
+    app.unmount();
+  }
+});
+
+test("m opens a message to Claude while it works, and Enter sends it", async () => {
+  const feed = new Feed(initialView("run-1", "/runs/run-1", { claude: "opus", astra: "gpt-6-astra" }));
+  const sent: string[] = [];
+  const answers: string[] = [];
+  let stops = 0;
+  const app = render(<App feed={feed} onStop={() => stops++} onAnswer={(answer) => answers.push(answer)} onSend={(text) => sent.push(text)} />);
+  const type = async (...keys: string[]) => {
+    for (const key of keys) {
+      app.stdin.write(key);
+      await settle();
+    }
+  };
+  try {
+    // Astra is reviewing: nobody to send to.
+    feed.dispatch({ type: "step", agent: "astra", task: "review", iteration: 1, maxIterations: 5 });
+    await type("m");
+    assert.doesNotMatch(frameOf(app), /Message to Claude|m: message Claude/);
+
+    feed.dispatch({ type: "step", agent: "claude", task: "work", iteration: 2, maxIterations: 5 });
+    await settle();
+    assert.match(frameOf(app), /m: message Claude/);
+    feed.update((view) => ({ ...view, question: { tool: "Bash", detail: "make", rules: [] } }));
+    // While writing, q, y and the other keys are text, not commands.
+    await type("m", "q", "y", "x", "\u007f", "\u007f", " also run lint");
+    assert.match(frameOf(app), /Message to Claude/);
+    assert.match(frameOf(app), /q also run lint/);
+    assert.equal(stops, 0);
+    assert.deepEqual(answers, []);
+    await type("\r");
+    assert.deepEqual(sent, ["q also run lint"]);
+    assert.doesNotMatch(frameOf(app), /Message to Claude/);
+
+    // An empty message is not sent.
+    await type("m", "  ", "\r");
+    assert.deepEqual(sent, ["q also run lint"]);
   } finally {
     app.unmount();
   }
