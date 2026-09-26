@@ -3,13 +3,31 @@
   "version": "0.1.0",
   "private": true,
   "description": "Claude executes. Astra reviews. A fresh session takes the next step.",
+  "license": "MIT",
+  "author": "takuma-shishido",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/takuma-shishido/lavista.git"
+  },
+  "homepage": "https://github.com/takuma-shishido/lavista#readme",
+  "bugs": {
+    "url": "https://github.com/takuma-shishido/lavista/issues"
+  },
+  "keywords": [
+    "claude-code",
+    "codex",
+    "ai-agent",
+    "cli",
+    "tui"
+  ],
   "type": "module",
   "bin": {
     "lavista": "dist/cli.js"
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=22.12"

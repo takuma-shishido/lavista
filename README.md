@@ -1,16 +1,28 @@
 # lavista
 
+[![CI](https://github.com/takuma-shishido/lavista/actions/workflows/ci.yml/badge.svg)](https://github.com/takuma-shishido/lavista/actions/workflows/ci.yml)
+
 Astra（Codex CLI）が目標を段階的な計画に分け、Claude Codeが1段階ずつ実行し、Astraが結果を検証して次の指示を作る、というループを回すローカルCLIです。macOS / Linux、Node.js 22.12以上。
+
+「Astra」は、レビュー役として動くCodex CLI（既定モデル `gpt-6-astra`）を指すlavista内の呼び名です。
+
+> [!WARNING]
+> ClaudeはカレントディレクトリでAuto modeのまま、ファイルの編集やコマンドの実行を自律的に行います。変更はその場に直接反映され、lavistaは元に戻す手段を持ちません。
+> - gitで管理されたディレクトリで、作業前にコミットしてから実行してください。隔離したい場合は、`git worktree` などで作った作業用コピーで実行してください。
+> - 秘密情報や、失っては困るデータがある環境では実行しないでください。
+> - ClaudeとCodexの利用料金・使用量は、それぞれのアカウントに計上されます。
 
 ## 準備
 
 ```sh
+git clone https://github.com/takuma-shishido/lavista.git
+cd lavista
 npm ci
 npm run build
 npm link
 ```
 
-`claude` と `codex` をインストールし、それぞれログインしておきます。
+`claude` と `codex` をインストールし、それぞれログインしておきます（動作確認済み：Claude Code 2.1.281、codex-cli 0.153.4）。lavistaは両CLIの出力形式に依存するため、CLIの更新で動かなくなることがあります。
 
 ## 使い方
 
@@ -75,7 +87,7 @@ Claudeがビルドなどをバックグラウンドで起動したままター�
 | `claude_model` / `claude_effort` | 一覧から選択 | Claudeのモデル・effort。`""` でCLIの設定に従う |
 | `astra_model` / `astra_effort` | 一覧から選択 | Astraのモデル・effort。`""` でCLIの設定に従う |
 | `allowed_tools` | `""` | Claudeに確認なしで許可するツール規則（例：`"Bash(npm test)"`）。確認で `a` を選んだ規則は、runの `approved_tools` に保存されて一緒に使われます |
-| `max_iterations` | `5` | Claudeの最大実行回数 |
+| `max_iterations` | `20` | Claudeの最大実行回数 |
 | `timeout` | `1800` | CLIの無出力がこの秒数続いたら停止（確認待ちとバックグラウンド処理の待ちは除く） |
 
 ## 開発
@@ -84,3 +96,7 @@ Claudeがビルドなどをバックグラウンドで起動したままター�
 npm run check
 npm test
 ```
+
+## ライセンス
+
+[MIT](LICENSE)
