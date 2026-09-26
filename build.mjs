@@ -27,6 +27,10 @@ await build({
   format: "esm",
   target: "node22.12",
   jsx: "automatic",
+  // React's development build records a performance.measure() entry, with a diff of the changed
+  // props, for every component render. Node keeps those entries forever, so a long run grew by
+  // gigabytes. The production build records none.
+  define: { "process.env.NODE_ENV": '"production"' },
   plugins: [withoutInkDevtools],
   // CommonJS dependencies call require() and use __dirname, which an ES module lacks. (esbuild keeps
   // the entry point's shebang above the banner.)
