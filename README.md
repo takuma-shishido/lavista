@@ -26,17 +26,19 @@ npm link
 
 ## 使い方
 
-目標と完了条件を `task.txt` に書き、対象プロジェクトのディレクトリで実行します。成果物はカレントディレクトリに直接反映されます。
+対象プロジェクトのディレクトリで実行すると、エディタ（`$VISUAL`、`$EDITOR`、どちらもなければ `vi`）が開きます。目標と完了条件を書いて保存・終了すると開始します。空のまま終了すると中止します。成果物はカレントディレクトリに直接反映されます。
 
 ```sh
 cd /path/to/project
-lavista start task.txt
+lavista start
 ```
+
+書いた目標はrunと一緒に `.lavista/runs/<run>/goal.md` に保存されます（`.lavista/runs/` はgitの対象外です）。ファイルを渡すと、その内容を初期値としてエディタが開きます。端末でない環境（パイプやCI）では、渡したファイルがそのまま目標になります。
 
 モデルとeffortは引数で指定でき、未指定なら起動時に一覧から選びます。
 
 ```sh
-lavista start task.txt \
+lavista start \
   --claude-model claude-opus-5-5 --claude-effort high \
   --astra-model gpt-6-astra --astra-effort xhigh
 ```
@@ -74,7 +76,7 @@ Claudeがビルドなどをバックグラウンドで起動したままター�
 | `lavista resume [run]` | 停止したrunを再開（Astraの失敗・上限停止後など） |
 | `lavista retry [run]` | 失敗したClaudeの実行をやり直す |
 | `lavista review [run]` | 保存済みのClaude結果をAstraに判定させる |
-| `lavista answer <file> [run]` | `needs_input` への回答を渡して再判定 |
+| `lavista answer [run]` | `needs_input` への回答をエディタで書いて再判定（Astraの質問がエディタに表示されます。端末でない環境では `--file <file>` で渡します） |
 
 `[run]` を省略すると最新のrunが対象です（`resume` / `retry` / `review` / `answer` は、別のlavistaが実行中のrunを飛ばします）。使用量上限で止まった場合は終了コード75で終了します。
 

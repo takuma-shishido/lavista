@@ -80,7 +80,7 @@ export class Workspace {
   findRun(id?: string, { idle = false } = {}): RunStore {
     if (id !== undefined) return new RunStore(join(this.runsDirectory, id));
     const runs = this.runs();
-    if (runs.length === 0) throw new Error(`No runs in ${this.runsDirectory}. Start one with: lavista start <prompt-file>`);
+    if (runs.length === 0) throw new Error(`No runs in ${this.runsDirectory}. Start one with: lavista start`);
     const latest = idle ? runs.findLast((run) => !run.active) : runs.at(-1);
     if (latest === undefined) throw new Error("Every run is in progress in another lavista. Name the run to use: lavista <command> <run>");
     return latest;

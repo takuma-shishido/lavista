@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import writeFileAtomic from "write-file-atomic";
 import { parseState } from "./model.js";
@@ -46,6 +46,11 @@ export class RunStore {
     return join(this.directory, "review-schema.json");
   }
 
+  /** The goal as the agents see it, with any answers the user gave, for the user to read. */
+  get goalPath(): string {
+    return join(this.directory, "goal.md");
+  }
+
   private get statePath(): string {
     return join(this.directory, "state.json");
   }
@@ -78,6 +83,11 @@ export class RunStore {
     mkdirSync(dirname(this.directory), { recursive: true });
     mkdirSync(this.directory);
     this.save(state);
+    this.saveGoal(state.goal);
+  }
+
+  saveGoal(goal: string): void {
+    writeFileSync(this.goalPath, `${goal}\n`);
   }
 
   load(): RunState {

@@ -4,6 +4,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { concurrentRun, createAgents, UsageLimitError, verifyClaudeResult } from "./agents.js";
 import { sdkClaude } from "./claude.js";
+import { editText } from "./editor.js";
 import { consoleReporter } from "./events.js";
 import type { Reporter } from "./events.js";
 import { runLoop } from "./loop.js";
@@ -21,7 +22,25 @@ function nonemptyFile(path: string): string {
   return content;
 }
 
-function expectStage(state: RunState, stage: RunState["stage"], command: string): void {
+const GOAL_HELP = `Write the goal above, and the conditions under which it is complete.
+Save and quit to start; leave it empty to cancel.`;
+
+/**
+ * Text from `file` when given, written in the editor on a terminal (starting from `file`'s text).
+ * Off a terminal there is nobody to write it, so `file` is required.
+ */
+async function writeText(file: string | undefined, help: string, what: string): Promise<string> {
+  const initial = file === undefined ? "" : nonemptyFile(file);
+  if (!isInteractive()) {
+    if (file === undefined) throw new Error(`Give the ${what} as a file; there is no terminal to open an editor on.`);
+    return initial;
+  }
+  const text = await editText(initial, help);
+  if (!text) throw new Error(`Cancelled: the ${what} is empty.`);
+  return text;
+}
+
+function expectStage<S extends RunState["stage"]>(state: RunState, stage: S, command: string): asserts state is RunState & { stage: S } {
   if (state.stage !== stage) throw new Error(`lavista ${command} requires the ${stage} stage, but the run is in ${state.stage}`);
 }
 
@@ -52,11 +71,11 @@ function createProgram(signal: AbortSignal, workspace: Workspace) {
   };
 
   /** Reload limits from config (models stay as chosen at start), apply a stage transition, then continue. */
-  const resumeWith = (transition: (state: RunState, store: RunStore) => RunState) => async (id?: string) => {
+  const resumeWith = (transition: (state: RunState, store: RunStore) => RunState | Promise<RunState>) => async (id?: string) => {
     const store = workspace.findRun(id, { idle: true });
     await store.exclusive(async () => {
       const state: RunState = { ...store.load(), ...workspace.loadLimits() };
-      store.save(transition(state, store));
+      store.save(await transition(state, store));
       await run(store);
     });
   };
@@ -70,16 +89,16 @@ function createProgram(signal: AbortSignal, workspace: Workspace) {
     });
 
   program.command("start")
-    .description("Start a new run from a UTF-8 file with the goal and completion criteria")
-    .argument("<prompt-file>")
+    .description("Start a new run: write the goal and completion criteria in your editor ($VISUAL, $EDITOR or vi)")
+    .argument("[file]", "UTF-8 text to start the editor from; used as is when not on a terminal")
     .option("--claude-model <model>", "Claude model for the worker, e.g. claude-opus-5-5")
     .addOption(new Option("--claude-effort <level>", "Claude effort level").choices(CLAUDE_EFFORTS))
     .option("--astra-model <model>", "Codex model for Astra's reviews, e.g. gpt-6-astra")
     .option("--astra-effort <level>", "Codex reasoning effort, e.g. high")
-    .addHelpText("after", "\nModels and efforts not given here or in .lavista/config*.json are picked from a list\n"
+    .addHelpText("after", "\nThe goal is saved with the run as .lavista/runs/<run>/goal.md.\n"
+      + "Models and efforts not given here or in .lavista/config*.json are picked from a list\n"
       + "(CLI defaults when not on a terminal). They are passed per run as flags; neither CLI's settings are changed.")
-    .action(async (promptFile, options) => {
-      const goal = nonemptyFile(promptFile);
+    .action(async (file, options) => {
       const config = workspace.loadConfig();
       const models = await chooseModels({
         claude_model: options.claudeModel ?? config.claude_model,
@@ -87,6 +106,7 @@ function createProgram(signal: AbortSignal, workspace: Workspace) {
         astra_model: options.astraModel ?? config.astra_model,
         astra_effort: options.astraEffort ?? config.astra_effort,
       }, isInteractive() ? interactivePicker() : undefined);
+      const goal = await writeText(file, GOAL_HELP, "goal");
       const store = workspace.newRun();
       store.create({
         ...models, ...workspace.loadLimits(),
@@ -119,14 +139,18 @@ function createProgram(signal: AbortSignal, workspace: Workspace) {
     }));
 
   program.command("answer")
-    .description("Answer a needs_input decision and let Astra decide again")
-    .argument("<file>")
+    .description("Answer a needs_input decision in your editor and let Astra decide again")
     .argument("[run]")
-    .action((file, id) => resumeWith((state, store) => {
+    .option("--file <file>", "UTF-8 text to start the editor from; used as is when not on a terminal")
+    .action((id, options) => resumeWith(async (state, store) => {
       expectStage(state, "needs_input", "answer");
+      const help = `Write your answer to Astra above. Leave it empty to cancel.\n\nAstra asks:\n${state.reason}`;
+      const answer = await writeText(options.file, help, "answer");
       // A question asked while planning, before any iteration ran, is answered by planning again.
       const stage = existsSync(store.step(state.iteration).directory) ? "review" : "plan";
-      return { ...state, stage, goal: `${state.goal}\n\nUser clarification:\n${nonemptyFile(file)}` };
+      const goal = `${state.goal}\n\nUser clarification:\n${answer}`;
+      store.saveGoal(goal);
+      return { ...state, stage, goal };
     })(id));
 
   program.command("status")
