@@ -46,6 +46,9 @@ test("review decisions must agree with the plan", () => {
   assert.throws(() => parseReview({ ...review, plan: [{ ...stage, status: "done" }] }), /pending stage/);
   assert.throws(() => parseReview({ ...review, plan: [{ ...stage, done_when: " " }] }), /blank/);
   assert.doesNotThrow(() => parseReview({ ...review, decision: "needs_input", next_prompt: "" }));
+  // Asked before planning: there is no stage yet.
+  assert.doesNotThrow(() => parseReview({ ...review, decision: "needs_input", next_prompt: "", plan: [] }));
+  assert.throws(() => parseReview({ ...review, decision: "done", plan: [] }), /at least one stage/);
 });
 
 test("a plan revision may reopen a completed stage but not drop it", () => {
@@ -53,6 +56,8 @@ test("a plan revision may reopen a completed stage but not drop it", () => {
   assert.doesNotThrow(() => checkPlanRevision([finished], [{ ...finished, status: "pending" }]));
   assert.throws(() => checkPlanRevision([finished], [{ ...finished, title: "b" }]), /dropped completed stages: "a"/);
   assert.doesNotThrow(() => checkPlanRevision([{ ...finished, status: "pending" }], [{ ...finished, title: "b" }]));
+  assert.throws(() => checkPlanRevision([{ ...finished, status: "pending" }], []), /dropped every stage/);
+  assert.doesNotThrow(() => checkPlanRevision([], []));
 });
 
 test("state parsing enforces stage-specific fields and numeric limits", () => {

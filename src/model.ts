@@ -78,7 +78,8 @@ const review = z.strictObject({
 }).refine((value) => value.decision !== "continue" || value.next_prompt.trim() !== "", {
   message: "continue requires a next prompt",
   path: ["next_prompt"],
-}).refine((value) => value.plan.length > 0, {
+  // A goal that cannot be planned without the user's decision is asked about before any stage exists.
+}).refine((value) => value.decision === "needs_input" || value.plan.length > 0, {
   message: "the plan must have at least one stage",
   path: ["plan"],
 }).refine((value) => value.decision !== "done" || value.plan.every((stage) => stage.status === "done"), {
@@ -106,8 +107,14 @@ export function parse<T>(schema: z.ZodType<T>, value: unknown, label: string): T
 export const parseState = (value: unknown): RunState => parse(runState, value, "run state");
 export const parseReview = (value: unknown): Review => parse(review, value, "Astra response");
 
-/** Completed stages are the record of progress: a revision may reopen one, but never drop it. */
+/**
+ * Completed stages are the record of progress: a revision may reopen one, but never drop it.
+ * Only a plan not yet drawn up may stay empty.
+ */
 export function checkPlanRevision(previous: PlanStage[], next: PlanStage[]): void {
+  if (previous.length > 0 && next.length === 0) {
+    throw new Error("Astra's plan dropped every stage. Run `lavista resume` to ask again.");
+  }
   const titles = new Set(next.map((stage) => stage.title));
   const dropped = previous.filter((stage) => stage.status === "done" && !titles.has(stage.title));
   if (dropped.length > 0) {

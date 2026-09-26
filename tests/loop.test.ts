@@ -219,6 +219,23 @@ test("Astra plans before any work, Claude sees the plan, and each review revises
   assert.deepEqual((readJson(join(store.directory, "plan", "review.json")) as { plan: unknown }).plan, [investigate, pending]);
 });
 
+test("a goal that needs the user's decision is asked about before any stage is planned", async (t) => {
+  const store = fixture(t);
+  store.save({ ...store.load(), stage: "plan" });
+  const events: LoopEvent[] = [];
+  const runner: ProcessRunner = async ({ args }) => {
+    writeFileSync(args[args.indexOf("--output-last-message") + 1]!, JSON.stringify({
+      decision: "needs_input", reason: "Transliterate accents or keep them?", next_prompt: "", plan: [],
+    }));
+  };
+  await runLoop(store, createAgents({ claude: succeedClaude, process: runner }), signal(), (event) => events.push(event));
+  const state = store.load();
+  assert.equal(state.stage, "needs_input");
+  assert.equal(state.stage === "needs_input" && state.reason, "Transliterate accents or keep them?");
+  assert.deepEqual(state.plan, []);
+  assert.ok(events.some((event) => event.type === "notice" && event.message.includes("Transliterate accents")));
+});
+
 test("a review that drops a completed stage is rejected and stays resumable", async (t) => {
   const store = fixture(t);
   store.save({ ...store.load(), stage: "review", plan: [done, { ...pending, title: "Second" }] });
