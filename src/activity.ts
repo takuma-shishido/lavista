@@ -184,16 +184,37 @@ const codexEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("error"), message: z.string() }),
 ]);
 
+/** The command Codex ran, without the `/bin/zsh -lc "…"` wrapper that hides it in a narrow pane. */
+export function unwrapShell(command: string): string {
+  const match = /^(?:\S*\/)?(?:ba|z)?sh -lc (.+)$/s.exec(command);
+  if (!match) return command;
+  const script = match[1]!;
+  if (/^'.*'$/s.test(script)) return script.slice(1, -1).replaceAll(`'\\''`, "'");
+  if (/^".*"$/s.test(script)) return script.slice(1, -1).replace(/\\([\\"$`])/g, "$1");
+  return script;
+}
+
+/** Astra's final message is its decision as JSON; show the decision and why, not the raw object. */
+function codexMessage(text: string): string {
+  try {
+    const { decision, reason } = JSON.parse(text) as { decision?: unknown; reason?: unknown };
+    if (typeof decision === "string") return summarize(typeof reason === "string" && reason ? `${decision}: ${reason}` : decision);
+  } catch {
+    // Prose, not a decision.
+  }
+  return summarize(text);
+}
+
 function codexItemActivity(phase: "item.started" | "item.completed", value: unknown): Activity | undefined {
   const item = codexItem.safeParse(value);
   if (!item.success) return undefined;
   const { data } = item;
   // Commands are shown when they start and again with their result; everything else once, when complete.
   if (phase === "item.started") {
-    return data.type === "command_execution" ? { kind: "tool", text: `$ ${summarize(data.command)}` } : undefined;
+    return data.type === "command_execution" ? { kind: "tool", text: `$ ${summarize(unwrapShell(data.command))}` } : undefined;
   }
   switch (data.type) {
-    case "agent_message": return { kind: "text", text: summarize(data.text) };
+    case "agent_message": return { kind: "text", text: codexMessage(data.text) };
     case "reasoning": return { kind: "thinking", text: summarize(data.text) };
     case "command_execution": {
       const output = summarize(data.aggregated_output ?? "");

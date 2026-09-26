@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import stringWidth from "string-width";
-import { claudeModelMismatch, describeInput, parseClaudeLine, parseCodexLine, summarize } from "../src/activity.js";
+import { claudeModelMismatch, describeInput, parseClaudeLine, parseCodexLine, summarize, unwrapShell } from "../src/activity.js";
 import { displayText, ICONS } from "../src/events.js";
 
 const line = (value: unknown) => JSON.stringify(value);
@@ -34,7 +34,7 @@ test("Claude stream-json events become readable activity", () => {
 test("Codex exec --json events become readable activity", () => {
   assert.deepEqual(parseCodexLine(line({ type: "thread.started", thread_id: "x" })), [{ kind: "info", text: "session started" }]);
   assert.deepEqual(parseCodexLine(line({ type: "item.started", item: { id: "1", type: "command_execution", command: "bash -lc ls", status: "in_progress" } })),
-    [{ kind: "tool", text: "$ bash -lc ls" }]);
+    [{ kind: "tool", text: "$ ls" }]);
   assert.deepEqual(parseCodexLine(line({ type: "item.completed", item: { id: "1", type: "command_execution", command: "bash -lc ls", aggregated_output: "a.txt\nb.txt\n", exit_code: 0 } })),
     [{ kind: "output", text: "ok: a.txt (+1 lines)" }]);
   assert.deepEqual(parseCodexLine(line({ type: "item.completed", item: { id: "2", type: "command_execution", command: "false", aggregated_output: "", exit_code: 1 } })),
@@ -42,7 +42,9 @@ test("Codex exec --json events become readable activity", () => {
   assert.deepEqual(parseCodexLine(line({ type: "item.completed", item: { id: "3", type: "reasoning", text: "Checking tests" } })),
     [{ kind: "thinking", text: "Checking tests" }]);
   assert.deepEqual(parseCodexLine(line({ type: "item.completed", item: { id: "4", type: "agent_message", text: "{\"decision\":\"done\"}" } })),
-    [{ kind: "text", text: "{\"decision\":\"done\"}" }]);
+    [{ kind: "text", text: "done" }]);
+  assert.deepEqual(parseCodexLine(line({ type: "item.completed", item: { id: "5", type: "agent_message", text: JSON.stringify({ decision: "continue", reason: "テストが未作成", plan: [] }, null, 2) } })),
+    [{ kind: "text", text: "continue: テストが未作成" }]);
   assert.deepEqual(parseCodexLine(line({ type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5 } })),
     [{ kind: "info", text: "finished (10 in / 5 out tokens)" }]);
   assert.deepEqual(parseCodexLine(line({ type: "turn.failed", error: { message: "model not found" } })),
@@ -102,4 +104,12 @@ test("paths inside the project are shown relative to it, others as given", () =>
   assert.equal(describeInput({ file_path: "/other/notes.md" }, "/p"), "/other/notes.md");
   assert.equal(describeInput({ file_path: "/p2/x.js" }, "/p"), "/p2/x.js");
   assert.equal(describeInput({ command: "cat /p/a.txt" }, "/p"), "cat /p/a.txt");
+});
+
+test("Codex's shell wrapper is removed so the command itself shows", () => {
+  assert.equal(unwrapShell(`/bin/zsh -lc "pwd; rg --files -g '*.js'"`), "pwd; rg --files -g '*.js'");
+  assert.equal(unwrapShell(`/bin/bash -lc 'npm test'`), "npm test");
+  assert.equal(unwrapShell(`bash -lc 'echo '\\''hi'\\'''`), "echo 'hi'");
+  assert.equal(unwrapShell(`zsh -lc "echo \\"a\\" \\$HOME"`), `echo "a" $HOME`);
+  assert.equal(unwrapShell("git status"), "git status");
 });
