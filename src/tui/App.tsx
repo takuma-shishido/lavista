@@ -41,18 +41,22 @@ function currentStage(view: View): string | undefined {
 
 function Header({ view }: { view: View }) {
   const stage = currentStage(view);
+  // One row: the fixed parts keep their width and only the stage title gives way. A wrapped header
+  // would push the frame past the bottom of the screen and scroll its first row out of sight.
   return (
-    <Box gap={2} overflow="hidden">
-      <Text bold>lavista</Text>
-      <Text dimColor>run {view.runId}</Text>
-      {view.active?.task === "plan"
-        ? <Text>planning</Text>
-        : view.iteration > 0 && <Text>iteration {view.iteration}/{view.maxIterations}</Text>}
-      {view.active && view.status === "running" && (
-        <Text color={AGENTS[view.active.agent].color}>
-          {AGENTS[view.active.agent].title} <Working since={view.active.since} />
-        </Text>
-      )}
+    <Box gap={2} height={1} overflow="hidden">
+      <Box flexShrink={0} gap={2}>
+        <Text bold>lavista</Text>
+        <Text dimColor>run {view.runId}</Text>
+        {view.active?.task === "plan"
+          ? <Text>planning</Text>
+          : view.iteration > 0 && <Text>iteration {view.iteration}/{view.maxIterations}</Text>}
+        {view.active && view.status === "running" && (
+          <Text color={AGENTS[view.active.agent].color}>
+            {AGENTS[view.active.agent].title} <Working since={view.active.since} />
+          </Text>
+        )}
+      </Box>
       {stage && <Text wrap="truncate-end">{stage}</Text>}
     </Box>
   );

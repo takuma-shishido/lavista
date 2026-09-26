@@ -85,6 +85,26 @@ test("every row keeps the frame width whatever the agents print", async () => {
   }
 });
 
+test("the header stays one row, cutting a long stage title rather than wrapping", async () => {
+  const feed = new Feed(initialView("2026-09-26T18-19-26Z", "/runs/r", { claude: "claude-sonnet-5", astra: "gpt-6-astra" }));
+  const app = render(<App feed={feed} onStop={() => {}} onAnswer={() => {}} />);
+  try {
+    feed.dispatch({ type: "plan", plan: [
+      { title: "Transliterate accented letters and verify slugify against every example the user gave", done_when: "w", status: "pending" },
+    ] });
+    feed.dispatch({ type: "step", agent: "claude", task: "work", iteration: 1, maxIterations: 20 });
+    await settle();
+    const [header, border] = (app.lastFrame() ?? "").split("\n");
+    for (const expected of ["lavista", "run 2026-09-26T18-19-26Z", "iteration 1/20", "Claude Code", "stage 1/1 Transliterate"]) {
+      assert.ok(header?.includes(expected), `missing ${expected} in the header: ${header}`);
+    }
+    assert.ok(header!.endsWith("…") && stringWidth(header!) <= 100, header);
+    assert.ok(border?.startsWith("╭"), `the header took more than one row:\n${app.lastFrame()}`);
+  } finally {
+    app.unmount();
+  }
+});
+
 test("a permission request is shown until answered with y, a or n", async () => {
   const feed = new Feed(initialView("run-1", "/runs/run-1", { claude: "opus", astra: "gpt-6-astra" }));
   const answers: string[] = [];
