@@ -27,6 +27,8 @@ test("Claude stream-json events become readable activity", () => {
   ]);
   assert.deepEqual(parseClaudeLine(line({ type: "result", subtype: "success", num_turns: 4, duration_ms: 12400, total_cost_usd: 0.1234 })),
     [{ kind: "info", text: "finished: success (4 turns, 12s, $0.12)" }]);
+  assert.deepEqual(parseClaudeLine(line({ type: "lavista_waiting", tasks: ["Build", "Watch build log"] })),
+    [{ kind: "info", text: "waiting for background work: Build, Watch build log" }]);
 });
 
 test("Codex exec --json events become readable activity", () => {

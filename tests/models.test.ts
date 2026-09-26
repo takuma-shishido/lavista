@@ -60,7 +60,7 @@ test("without a picker everything is left to the CLIs, except Astra's default mo
 test("runs saved before effort existed load with CLI-default effort", () => {
   const state = parseState({
     goal: "g", project: "/p", astra_model: "gpt-6-astra", claude_model: "", allowed_tools: "",
-    max_iterations: 1, timeout: 10, max_history_bytes: 100, iteration: 1, next_prompt: "g", stage: "claude",
+    max_iterations: 1, timeout: 10, iteration: 1, next_prompt: "g", stage: "claude",
   });
   assert.equal(state.claude_effort, "");
   assert.equal(state.astra_effort, "");

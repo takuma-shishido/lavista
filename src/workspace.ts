@@ -11,9 +11,8 @@ export const DEFAULT_SETTINGS: RunSettings = {
   astra_model: "gpt-6-astra",
   astra_effort: "",
   allowed_tools: "",
-  max_iterations: 5,
+  max_iterations: 20,
   timeout: 1800,
-  max_history_bytes: 1_000_000,
 };
 
 // Every key is optional; unknown keys are rejected so typos do not silently fall back to defaults.
@@ -65,17 +64,30 @@ export class Workspace {
     return new RunStore(join(this.runsDirectory, id));
   }
 
-  /** The run with the given ID, or the most recently started one. */
-  findRun(id?: string): RunStore {
+  private runs(): RunStore[] {
+    if (!existsSync(this.runsDirectory)) return [];
+    return readdirSync(this.runsDirectory, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort()
+      .map((name) => new RunStore(join(this.runsDirectory, name)));
+  }
+
+  /**
+   * The run with the given ID, or the most recently started one. With `idle`, the default skips runs
+   * another lavista is working on, so `lavista resume` next to a running run picks the stopped one.
+   */
+  findRun(id?: string, { idle = false } = {}): RunStore {
     if (id !== undefined) return new RunStore(join(this.runsDirectory, id));
-    const latest = existsSync(this.runsDirectory)
-      ? readdirSync(this.runsDirectory, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => entry.name)
-        .sort()
-        .at(-1)
-      : undefined;
-    if (latest === undefined) throw new Error(`No runs in ${this.runsDirectory}. Start one with: lavista start <prompt-file>`);
-    return new RunStore(join(this.runsDirectory, latest));
+    const runs = this.runs();
+    if (runs.length === 0) throw new Error(`No runs in ${this.runsDirectory}. Start one with: lavista start <prompt-file>`);
+    const latest = idle ? runs.findLast((run) => !run.active) : runs.at(-1);
+    if (latest === undefined) throw new Error("Every run is in progress in another lavista. Name the run to use: lavista <command> <run>");
+    return latest;
+  }
+
+  /** Other runs a lavista is working on in this project right now. */
+  activeRuns(except: RunStore): RunStore[] {
+    return this.runs().filter((run) => run.directory !== except.directory && run.active);
   }
 }

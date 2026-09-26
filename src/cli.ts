@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { Command, CommanderError, Option } from "@commander-js/extra-typings";
-import { readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { createAgents, UsageLimitError, verifyClaudeResult } from "./agents.js";
+import { concurrentRun, createAgents, UsageLimitError, verifyClaudeResult } from "./agents.js";
+import { sdkClaude } from "./claude.js";
 import { consoleReporter } from "./events.js";
 import type { Reporter } from "./events.js";
 import { runLoop } from "./loop.js";
@@ -35,9 +36,16 @@ function createProgram(signal: AbortSignal, workspace: Workspace) {
     : consoleReporter();
 
   const run = async (store: RunStore) => {
-    const { emit, close } = reporter(store);
+    const { emit, ask, close } = reporter(store);
     try {
-      await runLoop(store, createAgents(runProcess, emit), cancel, emit);
+      const concurrent = () => workspace.activeRuns(store).flatMap((other) => {
+        try {
+          return [concurrentRun(other.load())];
+        } catch {
+          return []; // Its state is being written or was never saved.
+        }
+      });
+      await runLoop(store, createAgents({ process: runProcess, claude: sdkClaude(ask) }, emit, concurrent), cancel, emit);
     } finally {
       await close();
     }
@@ -45,7 +53,7 @@ function createProgram(signal: AbortSignal, workspace: Workspace) {
 
   /** Reload limits from config (models stay as chosen at start), apply a stage transition, then continue. */
   const resumeWith = (transition: (state: RunState, store: RunStore) => RunState) => async (id?: string) => {
-    const store = workspace.findRun(id);
+    const store = workspace.findRun(id, { idle: true });
     await store.exclusive(async () => {
       const state: RunState = { ...store.load(), ...workspace.loadLimits() };
       store.save(transition(state, store));
@@ -54,7 +62,7 @@ function createProgram(signal: AbortSignal, workspace: Workspace) {
   };
 
   const program = new Command("lavista")
-    .description("Claude executes. Astra reviews. A fresh session takes the next step.\n"
+    .description("Astra plans. Claude executes. Astra reviews and revises the plan. A fresh session takes the next step.\n"
       + "Runs in the current directory. Settings: .lavista/config.json, .lavista/config.local.json")
     .exitOverride()
     .hook("preAction", () => {
@@ -82,7 +90,7 @@ function createProgram(signal: AbortSignal, workspace: Workspace) {
       const store = workspace.newRun();
       store.create({
         ...models, ...workspace.loadLimits(),
-        goal, project: workspace.project, stage: "claude", iteration: 1, next_prompt: goal,
+        goal, project: workspace.project, stage: "plan", iteration: 1, next_prompt: goal, plan: [], approved_tools: [],
       });
       await store.exclusive(() => run(store));
     });
@@ -114,9 +122,11 @@ function createProgram(signal: AbortSignal, workspace: Workspace) {
     .description("Answer a needs_input decision and let Astra decide again")
     .argument("<file>")
     .argument("[run]")
-    .action((file, id) => resumeWith((state) => {
+    .action((file, id) => resumeWith((state, store) => {
       expectStage(state, "needs_input", "answer");
-      return { ...state, stage: "review", goal: `${state.goal}\n\nUser clarification:\n${nonemptyFile(file)}` };
+      // A question asked while planning, before any iteration ran, is answered by planning again.
+      const stage = existsSync(store.step(state.iteration).directory) ? "review" : "plan";
+      return { ...state, stage, goal: `${state.goal}\n\nUser clarification:\n${nonemptyFile(file)}` };
     })(id));
 
   program.command("status")

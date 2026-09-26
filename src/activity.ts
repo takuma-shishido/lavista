@@ -44,7 +44,7 @@ function parseLine<T>(schema: z.ZodType<T>, line: string): T | undefined {
 const toolInput = z.record(z.string(), z.unknown());
 
 /** The most telling argument of a tool call, e.g. the command for Bash or the path for Edit. */
-function describeInput(input: Record<string, unknown>): string {
+export function describeInput(input: Record<string, unknown>): string {
   for (const key of ["command", "file_path", "path", "pattern", "url", "query", "description", "prompt"]) {
     const value = input[key];
     if (typeof value === "string" && value) return value;
@@ -71,6 +71,8 @@ const claudeEvent = z.discriminatedUnion("type", [
     // Set on synthetic messages reporting an API failure, e.g. "rate_limit" or "billing_error".
     error: z.string().optional(),
   }),
+  // Written by lavista: the turn ended while Claude's background work still runs.
+  z.object({ type: z.literal("lavista_waiting"), tasks: z.array(z.string()) }),
   z.object({
     type: z.literal("result"),
     subtype: z.string(),
@@ -114,6 +116,8 @@ export function parseClaudeLine(line: string): Activity[] {
       const limited = event.error === "rate_limit" || event.error === "billing_error";
       return [limited ? { kind: "limit", text: summarize(message) } : errorActivity(`${event.error}: ${message}`)];
     }
+    case "lavista_waiting":
+      return [{ kind: "info", text: summarize(`waiting for background work: ${event.tasks.join(", ")}`) }];
     case "result": {
       if (event.is_error) return [errorActivity(withResetTime(event.result ?? event.subtype))];
       const details = [

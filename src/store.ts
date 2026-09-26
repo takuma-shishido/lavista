@@ -13,7 +13,7 @@ export function saveJson(path: string, value: unknown): void {
   writeFileAtomic.sync(path, JSON.stringify(value, null, 2) + "\n");
 }
 
-/** Files saved for one iteration (`001/`, `002/`, ...). */
+/** Files saved for one iteration (`001/`, `002/`, ...), or for the initial planning (`plan/`, Astra's files only). */
 export class StepFiles {
   constructor(readonly directory: string) {}
 
@@ -54,6 +54,13 @@ export class RunStore {
     return new StepFiles(join(this.directory, String(iteration).padStart(3, "0")));
   }
 
+  /** Astra's initial planning, before the first iteration. */
+  createPlanStep(): StepFiles {
+    const step = new StepFiles(join(this.directory, "plan"));
+    mkdirSync(step.directory, { recursive: true });
+    return step;
+  }
+
   createStep(iteration: number): StepFiles {
     const step = this.step(iteration);
     mkdirSync(step.directory, { recursive: true });
@@ -81,10 +88,27 @@ export class RunStore {
     saveJson(this.statePath, state);
   }
 
+  private get lockDirectory(): string {
+    return join(this.directory, ".lavista-lock");
+  }
+
+  /** A lavista process holds this run's lock and is still alive. */
+  get active(): boolean {
+    try {
+      const { pid } = readJson(join(this.lockDirectory, "owner.json")) as { pid: number };
+      if (pid === process.pid) return true;
+      process.kill(pid, 0);
+      return true;
+    } catch (error) {
+      // EPERM: the process exists but belongs to someone else.
+      return (error as NodeJS.ErrnoException).code === "EPERM";
+    }
+  }
+
   // A plain directory lock without staleness detection: runs last up to 30 minutes per step and
   // mtime-based stale locks would be stolen after a laptop sleep. Stale locks are removed by hand.
   async exclusive<T>(action: () => Promise<T>): Promise<T> {
-    const lock = join(this.directory, ".lavista-lock");
+    const lock = this.lockDirectory;
     try {
       mkdirSync(lock);
     } catch (error) {

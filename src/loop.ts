@@ -18,6 +18,15 @@ export async function runLoop(
       case "needs_input":
         emit({ type: "notice", message: `${state.stage}: ${state.reason}` });
         return;
+      case "plan": {
+        emit({ type: "step", agent: "astra", task: "plan", iteration: state.iteration, maxIterations: state.max_iterations });
+        const review = await agents.plan(state, store, signal);
+        emit({ type: "plan", plan: review.plan });
+        state = review.decision === "continue"
+          ? { ...state, stage: "claude", plan: review.plan, next_prompt: review.next_prompt }
+          : { ...state, stage: review.decision, plan: review.plan, reason: review.reason };
+        break;
+      }
       case "claude_running":
         throw new Error("Previous Claude execution was interrupted or failed. Inspect logs, then run `lavista retry` or `lavista review`.");
       case "claude": {
@@ -26,21 +35,22 @@ export async function runLoop(
           return;
         }
         store.createStep(state.iteration);
-        emit({ type: "step", agent: "claude", iteration: state.iteration, maxIterations: state.max_iterations });
+        emit({ type: "step", agent: "claude", task: "work", iteration: state.iteration, maxIterations: state.max_iterations });
         const running: RunningState = { ...state, stage: "claude_running", session_id: randomUUID() };
         // Persist intent before launch. A failed worker must never replay automatically.
         store.save(running);
-        await agents.execute(running, store, signal);
-        state = { ...state, stage: "review" };
+        const approved = await agents.execute(running, store, signal);
+        state = { ...state, stage: "review", approved_tools: [...state.approved_tools, ...approved] };
         break;
       }
       case "review": {
-        emit({ type: "step", agent: "astra", iteration: state.iteration, maxIterations: state.max_iterations });
+        emit({ type: "step", agent: "astra", task: "review", iteration: state.iteration, maxIterations: state.max_iterations });
         const review = await agents.review(state, store, signal);
         emit({ type: "decision", iteration: state.iteration, review });
+        emit({ type: "plan", plan: review.plan });
         state = review.decision === "continue"
-          ? { ...state, stage: "claude", iteration: state.iteration + 1, next_prompt: review.next_prompt }
-          : { ...state, stage: review.decision, reason: review.reason };
+          ? { ...state, stage: "claude", iteration: state.iteration + 1, plan: review.plan, next_prompt: review.next_prompt }
+          : { ...state, stage: review.decision, plan: review.plan, reason: review.reason };
         break;
       }
     }

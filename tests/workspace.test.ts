@@ -46,3 +46,27 @@ test("runs are created under .lavista/runs and the latest one is found by defaul
   assert.equal(ws.findRun(first.id).directory, first.directory);
   assert.equal(readFileSync(join(ws.directory, ".gitignore"), "utf8"), "runs/\nconfig.local.json\n");
 });
+
+test("a run another lavista is working on is reported as active and skipped by default when asked", async (t) => {
+  const ws = workspace(t);
+  const first = ws.newRun(new Date("2026-01-01T00:00:00Z"));
+  const second = ws.newRun(new Date("2026-01-02T00:00:00Z"));
+  mkdirSync(first.directory);
+  mkdirSync(second.directory);
+  // A lock left by a process that no longer exists does not make a run active.
+  mkdirSync(join(first.directory, ".lavista-lock"));
+  writeFileSync(join(first.directory, ".lavista-lock", "owner.json"), JSON.stringify({ pid: 2 ** 22 + 12345 }));
+  assert.equal(first.active, false);
+  rmSync(join(first.directory, ".lavista-lock"), { recursive: true });
+  await second.exclusive(async () => {
+    assert.equal(second.active, true);
+    assert.deepEqual(ws.activeRuns(first).map((run) => run.id), [second.id]);
+    assert.deepEqual(ws.activeRuns(second), []);
+    assert.equal(ws.findRun().directory, second.directory);
+    assert.equal(ws.findRun(undefined, { idle: true }).directory, first.directory);
+    await first.exclusive(async () => {
+      assert.throws(() => ws.findRun(undefined, { idle: true }), /Every run is in progress/);
+    });
+  });
+  assert.equal(second.active, false);
+});

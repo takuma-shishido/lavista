@@ -9,6 +9,7 @@ export const timeoutSeconds = count.max(MAX_TIMEOUT_SECONDS);
 // Keep persisted field names compatible with the original Python runs.
 /** Levels accepted by `claude --effort`. */
 export const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+export type ClaudeEffort = (typeof CLAUDE_EFFORTS)[number];
 
 /** Chosen once at start and fixed for the run. An empty string means the CLI's own default. */
 export const modelSettings = z.object({
@@ -24,7 +25,6 @@ export const limitSettings = z.object({
   allowed_tools: z.string(),
   max_iterations: count,
   timeout: timeoutSeconds,
-  max_history_bytes: count,
 });
 
 /** User-tunable settings; also the shape of `.lavista/config*.json`. */
@@ -34,6 +34,18 @@ export type ModelSettings = z.infer<typeof modelSettings>;
 export type LimitSettings = z.infer<typeof limitSettings>;
 export type RunSettings = z.infer<typeof runSettings>;
 
+const nonblank = z.string().refine((value) => value.trim() !== "", "must not be blank");
+
+/** One stage of Astra's plan; the first pending stage is the one being worked on. */
+export const planStage = z.strictObject({
+  title: nonblank,
+  /** A concrete, checkable condition; a stage is marked done only when evidence meets it. */
+  done_when: nonblank,
+  status: z.enum(["pending", "done"]),
+});
+
+export type PlanStage = z.infer<typeof planStage>;
+
 const runConfig = runSettings.extend({
   // Runs saved before effort could be chosen used the CLI defaults.
   claude_effort: modelSettings.shape.claude_effort.default(""),
@@ -42,10 +54,14 @@ const runConfig = runSettings.extend({
   project: z.string(),
   iteration: count,
   next_prompt: z.string(),
+  // Runs saved before planning had no plan; their next review drafts one.
+  plan: z.array(planStage).default([]),
+  /** Allow rules the user approved while Claude worked; they apply to every later iteration of the run. */
+  approved_tools: z.array(z.string()).default([]),
 });
 
 const runState = z.discriminatedUnion("stage", [
-  runConfig.extend({ stage: z.literal(["claude", "review"]) }),
+  runConfig.extend({ stage: z.literal(["plan", "claude", "review"]) }),
   runConfig.extend({ stage: z.literal("claude_running"), session_id: z.string() }),
   runConfig.extend({ stage: z.literal(["done", "needs_input"]), reason: z.string() }),
 ]);
@@ -53,15 +69,24 @@ const runState = z.discriminatedUnion("stage", [
 export type RunState = z.infer<typeof runState>;
 export type RunningState = Extract<RunState, { stage: "claude_running" }>;
 
-const nonblank = z.string().refine((value) => value.trim() !== "", "must not be blank");
-
 const review = z.strictObject({
   decision: z.enum(["continue", "done", "needs_input"]),
   reason: nonblank,
+  // The whole plan, as updated by this decision.
+  plan: z.array(planStage),
   next_prompt: z.string(),
 }).refine((value) => value.decision !== "continue" || value.next_prompt.trim() !== "", {
   message: "continue requires a next prompt",
   path: ["next_prompt"],
+}).refine((value) => value.plan.length > 0, {
+  message: "the plan must have at least one stage",
+  path: ["plan"],
+}).refine((value) => value.decision !== "done" || value.plan.every((stage) => stage.status === "done"), {
+  message: "done requires every stage of the plan to be done",
+  path: ["plan"],
+}).refine((value) => value.decision !== "continue" || value.plan.some((stage) => stage.status === "pending"), {
+  message: "continue requires a pending stage to work on",
+  path: ["plan"],
 });
 
 export type Review = z.infer<typeof review>;
@@ -80,3 +105,16 @@ export function parse<T>(schema: z.ZodType<T>, value: unknown, label: string): T
 
 export const parseState = (value: unknown): RunState => parse(runState, value, "run state");
 export const parseReview = (value: unknown): Review => parse(review, value, "Astra response");
+
+/** Completed stages are the record of progress: a revision may reopen one, but never drop it. */
+export function checkPlanRevision(previous: PlanStage[], next: PlanStage[]): void {
+  const titles = new Set(next.map((stage) => stage.title));
+  const dropped = previous.filter((stage) => stage.status === "done" && !titles.has(stage.title));
+  if (dropped.length > 0) {
+    throw new Error(`Astra's plan dropped completed stages: ${dropped.map((stage) => `"${stage.title}"`).join(", ")}. Run \`lavista resume\` to ask again.`);
+  }
+}
+
+export function formatPlan(plan: PlanStage[]): string {
+  return plan.map((stage, index) => `[${stage.status === "done" ? "x" : " "}] ${index + 1}. ${stage.title} — done when: ${stage.done_when}`).join("\n");
+}
