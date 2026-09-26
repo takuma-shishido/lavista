@@ -2,10 +2,14 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { render } from "ink-testing-library";
 import stringWidth from "string-width";
+import stripAnsi from "strip-ansi";
 import { App } from "../src/tui/App.js";
 import { Feed, initialView, reduce } from "../src/tui/view.js";
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
+
+/** The rendered frame as text: colours are on whenever the environment asks for them (FORCE_COLOR, a colour terminal). */
+const frameOf = (app: { lastFrame: () => string | undefined }) => stripAnsi(app.lastFrame() ?? "");
 
 test("view tracks the active agent, per-agent activity and decisions", () => {
   let view = initialView("run-1", "/runs/run-1", { claude: "opus", astra: "CLI default model" });
@@ -38,7 +42,7 @@ test("TUI shows both agents' activity side by side and stops on q", async () => 
     feed.dispatch({ type: "activity", agent: "astra", activity: { kind: "text", text: "Verifying result.txt" } });
     feed.dispatch({ type: "decision", iteration: 1, review: { decision: "done", reason: "all checks pass", next_prompt: "", plan: [] } });
     await settle();
-    const frame = app.lastFrame() ?? "";
+    const frame = frameOf(app);
     for (const expected of ["Claude Code  opus", "Astra (Codex)  CLI default model", "iteration 1/5", "stage 2/2 Create result.txt", "▸ Bash npm test", "● Verifying result.txt", "#1 done all checks pass"]) {
       assert.ok(frame.includes(expected), `missing ${expected}:\n${frame}`);
     }
@@ -48,7 +52,7 @@ test("TUI shows both agents' activity side by side and stops on q", async () => 
     // Keys still work while stopping, so a second press can force the stop.
     feed.update((view) => ({ ...view, status: "stopping" }));
     await settle();
-    assert.match(app.lastFrame() ?? "", /again: force/);
+    assert.match(frameOf(app), /again: force/);
     app.stdin.write("\u0003");
     await settle();
     assert.equal(stops, 2);
@@ -75,7 +79,7 @@ test("every row keeps the frame width whatever the agents print", async () => {
     }
     feed.dispatch({ type: "decision", iteration: 1, review: { decision: "continue", reason: "Tests fail:\n\tsee\tlog", next_prompt: "fix", plan: [] } });
     await settle();
-    const rows = (app.lastFrame() ?? "").split("\n");
+    const rows = frameOf(app).split("\n");
     const widths = new Set(rows.filter((row) => row.startsWith("│") || row.startsWith("╭") || row.startsWith("╰"))
       .map((row) => stringWidth(row)));
     assert.deepEqual([...widths], [100], `rows of unequal width:\n${rows.join("\n")}`);
@@ -94,12 +98,12 @@ test("the header stays one row, cutting a long stage title rather than wrapping"
     ] });
     feed.dispatch({ type: "step", agent: "claude", task: "work", iteration: 1, maxIterations: 20 });
     await settle();
-    const [header, border] = (app.lastFrame() ?? "").split("\n");
+    const [header, border] = frameOf(app).split("\n");
     for (const expected of ["lavista", "run 2026-09-26T18-19-26Z", "iteration 1/20", "Claude Code", "stage 1/1 Transliterate"]) {
       assert.ok(header?.includes(expected), `missing ${expected} in the header: ${header}`);
     }
     assert.ok(header!.endsWith("…") && stringWidth(header!) <= 100, header);
-    assert.ok(border?.startsWith("╭"), `the header took more than one row:\n${app.lastFrame()}`);
+    assert.ok(border?.startsWith("╭"), `the header took more than one row:\n${frameOf(app)}`);
   } finally {
     app.unmount();
   }
@@ -113,7 +117,7 @@ test("a permission request is shown until answered with y, a or n", async () => 
     const request = { tool: "Bash", detail: "llvm-dwarfdump a.out", reason: "This command requires approval", rules: ["Bash(llvm-dwarfdump *)"] };
     feed.update((view) => ({ ...view, question: request }));
     await settle();
-    const frame = app.lastFrame() ?? "";
+    const frame = frameOf(app);
     for (const expected of ["Claude asks to use Bash", "llvm-dwarfdump a.out", "This command requires approval", "a allow for this run: Bash(llvm-dwarfdump *)"]) {
       assert.ok(frame.includes(expected), `missing ${expected}:\n${frame}`);
     }
@@ -126,7 +130,7 @@ test("a permission request is shown until answered with y, a or n", async () => 
     // Without a rule to remember, "a" is neither offered nor accepted.
     feed.update((view) => ({ ...view, question: { ...request, rules: [] } }));
     await settle();
-    assert.doesNotMatch(app.lastFrame() ?? "", /allow for this run/);
+    assert.doesNotMatch(frameOf(app), /allow for this run/);
     app.stdin.write("a");
     await settle();
     assert.deepEqual(answers, ["once", "run", "deny"]);

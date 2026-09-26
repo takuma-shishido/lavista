@@ -23,3 +23,7 @@ jobs:
       - run: npm run check
       - run: npm run build
       - run: npm test
+      # Colours are on in most terminals, where npm publish runs the tests too.
+      - run: npm test
+        env:
+          FORCE_COLOR: "1"
