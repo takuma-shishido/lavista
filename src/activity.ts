@@ -1,3 +1,4 @@
+import { isAbsolute, relative } from "node:path";
 import { z } from "zod";
 
 /** One human-readable thing an agent did, derived from a line of its JSON event stream. */
@@ -44,12 +45,18 @@ function parseLine<T>(schema: z.ZodType<T>, line: string): T | undefined {
 const toolInput = z.record(z.string(), z.unknown());
 
 /** The most telling argument of a tool call, e.g. the command for Bash or the path for Edit. */
-export function describeInput(input: Record<string, unknown>): string {
+export function describeInput(input: Record<string, unknown>, project = process.cwd()): string {
   for (const key of ["command", "file_path", "path", "pattern", "url", "query", "description", "prompt"]) {
     const value = input[key];
-    if (typeof value === "string" && value) return value;
+    if (typeof value === "string" && value) return key === "file_path" || key === "path" ? shortPath(value, project) : value;
   }
   return JSON.stringify(input);
+}
+
+/** A path inside the project relative to it, so the part that tells files apart fits in a pane. */
+function shortPath(path: string, project: string): string {
+  const inside = relative(project, path);
+  return isAbsolute(path) && inside && !inside.startsWith("..") && !isAbsolute(inside) ? inside : path;
 }
 
 const claudeBlock = z.discriminatedUnion("type", [

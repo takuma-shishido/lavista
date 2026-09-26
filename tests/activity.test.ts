@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import stringWidth from "string-width";
-import { claudeModelMismatch, parseClaudeLine, parseCodexLine, summarize } from "../src/activity.js";
+import { claudeModelMismatch, describeInput, parseClaudeLine, parseCodexLine, summarize } from "../src/activity.js";
 import { displayText, ICONS } from "../src/events.js";
 
 const line = (value: unknown) => JSON.stringify(value);
@@ -94,4 +94,12 @@ test("icons are one column in every terminal and text is made measurable", () =>
   assert.equal(stringWidth(displayText("⏺ ok")), 5);
   assert.equal(displayText("✅ already emoji"), "✅ already emoji");
   assert.equal(displayText("⏺️ kept"), "⏺️ kept");
+});
+
+test("paths inside the project are shown relative to it, others as given", () => {
+  assert.equal(describeInput({ file_path: "/p/src/slug.js" }, "/p"), "src/slug.js");
+  assert.equal(describeInput({ path: "/p" }, "/p"), "/p");
+  assert.equal(describeInput({ file_path: "/other/notes.md" }, "/p"), "/other/notes.md");
+  assert.equal(describeInput({ file_path: "/p2/x.js" }, "/p"), "/p2/x.js");
+  assert.equal(describeInput({ command: "cat /p/a.txt" }, "/p"), "cat /p/a.txt");
 });
