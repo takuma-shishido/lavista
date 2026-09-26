@@ -56,10 +56,19 @@ flowchart LR
 Install [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [Codex CLI](https://github.com/openai/codex) and log in to both. Node.js 22.12 or later is required.
 
 ```sh
+npm install -g lavista
+```
+
+<details>
+<summary>From source</summary>
+
+```sh
 git clone https://github.com/takuma-shishido/lavista.git
 cd lavista
 npm ci && npm run build && npm link
 ```
+
+</details>
 
 > [!NOTE]
 > Tested with Claude Code 2.1.281 and codex-cli 0.153.4. lavista reads both CLIs' output formats, so a CLI update may break it.
@@ -180,7 +189,10 @@ The chosen models and efforts are passed to each CLI as flags for that run only;
 ```sh
 npm run check   # type check
 npm test        # tests
+npm run build   # bundle into dist/cli.js with esbuild
 ```
+
+The published package is a single bundled file with no runtime dependencies. lavista runs the `claude` and `codex` already on your `PATH`, so the Agent SDK's bundled Claude Code binaries are left out.
 
 ## License
 
