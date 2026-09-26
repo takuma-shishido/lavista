@@ -3,3 +3,4 @@ dist/
 .test-build/
 runs/
 .DS_Store
+docs/
