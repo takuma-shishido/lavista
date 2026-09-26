@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { z } from "zod";
+import * as z from "zod";
 import { limitSettings, parse, runSettings } from "./model.js";
 import type { LimitSettings, RunSettings } from "./model.js";
 import { readJson, RunStore } from "./store.js";

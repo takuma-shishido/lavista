@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as z from "zod";
 
 // Node timers cannot represent delays above a signed 32-bit millisecond value.
 export const MAX_TIMEOUT_SECONDS = 2147483;

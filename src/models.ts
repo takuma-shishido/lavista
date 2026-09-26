@@ -3,7 +3,7 @@ import { execa } from "execa";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { z } from "zod";
+import * as z from "zod";
 import type { AgentName } from "./events.js";
 import { CLAUDE_EFFORTS } from "./model.js";
 import type { ModelSettings } from "./model.js";

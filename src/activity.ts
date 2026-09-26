@@ -1,5 +1,5 @@
 import { isAbsolute, relative } from "node:path";
-import { z } from "zod";
+import * as z from "zod";
 
 /** One human-readable thing an agent did, derived from a line of its JSON event stream. */
 export interface Activity {
